@@ -1,3 +1,7 @@
-Flask
+flask
 gunicorn
-pandas
+# 處理 JSON 欄位
+psycopg2-binary 
+# PostgreSQL 驅動
+SQLAlchemy 
+# ORM 框架

@@ -476,4 +476,16 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     # 設置 host='0.0.0.0' 讓應用程式可以被外部網路訪問 (Render 需要)
     app.run(host='0.0.0.0', port=port, debug=True)
+# app.py 結尾
+# ... (其他函數和路由) ...
+
+def init_db():
+    Base.metadata.create_all(engine)
+
+# 確保在 Gunicorn 載入 app.py 模組時執行資料表創建
+init_db() 
+
+if __name__ == '__main__':
+    # ... (本地啟動邏輯) ...
+    pass
 

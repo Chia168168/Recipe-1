@@ -579,7 +579,7 @@
   <div id="saveProgress" class="save-progress"><i class="fas fa-spinner fa-spin"></i><p>儲存中，請稍候...</p></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   
-  <script>
+<script>
     // UPDATED: Fixed order base options, removed "其他"
     const baseIngredientOptions = [ "高筋麵粉", "中筋麵粉", "低筋麵粉", "全麥麵粉", "裸麥粉", "麵粉", "水", "牛奶", "糖", "鹽", "蜂蜜", "酵母", "泡打粉", "奶油", "鮮奶油", "奶油乳酪", "奶粉", "煉乳", "雞蛋", "優格", "酒", "香草精" ];
     // This will be populated by init()
@@ -630,8 +630,32 @@
       }, 4000);
     }
 
-    function init() {
-      google.script.run.withSuccessHandler(function(customIngredients) {
+    // API 呼叫函數
+    async function apiCall(endpoint, options = {}) {
+      try {
+        const response = await fetch(endpoint, {
+          headers: {
+            'Content-Type': 'application/json',
+            ...options.headers
+          },
+          ...options
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error('API call failed:', error);
+        throw error;
+      }
+    }
+
+    async function init() {
+      try {
+        const customIngredients = await apiCall('/api/ingredients_db');
+        
         // UPDATED: Construct the final ingredient list in the correct order
         const customIngredientNames = customIngredients.map(ing => ing.name);
         // Ensure no duplicates from base list
@@ -649,9 +673,9 @@
         updateStats();
         renderCustomIngredients(customIngredients);
 
-      }).withFailureHandler(function(error) {
+      } catch (error) {
         showNotification('載入食材資料庫時發生錯誤: ' + error.message, 'error');
-      }).getIngredientsDB();
+      }
     }
 
     function switchTab(tabName) {
@@ -896,7 +920,7 @@
     function showSaveProgress() { document.getElementById('saveProgress').style.display = 'block'; }
     function hideSaveProgress() { document.getElementById('saveProgress').style.display = 'none'; }
 
-    function saveRecipe() {
+    async function saveRecipe() {
       const title = document.getElementById("title").value.trim();
       const steps = document.getElementById("steps").value.trim();
       
@@ -967,10 +991,29 @@
         return; 
       }
 
-      // 修改成功處理函數，使用通知系統並滾動到頂部
-      const handler = function(res) { 
+      try {
+        const recipeData = {
+          title: title,
+          ingredients: ingredients,
+          steps: steps,
+          baking: bakingInfo
+        };
+
+        let result;
+        if (editingTitle) {
+          result = await apiCall(`/api/recipes/${encodeURIComponent(editingTitle)}`, {
+            method: 'PUT',
+            body: JSON.stringify(recipeData)
+          });
+        } else {
+          result = await apiCall('/api/recipes', {
+            method: 'POST',
+            body: JSON.stringify(recipeData)
+          });
+        }
+
         hideSaveProgress(); 
-        showNotification(res.message, 'success');
+        showNotification(result.message, 'success');
         resetForm(); 
         loadRecipes(); 
         switchTab("browse"); 
@@ -979,19 +1022,10 @@
         setTimeout(() => {
           window.scrollTo(0, 0);
         }, 100);
-      };
-      
-      const errorHandler = function(err) { 
+        
+      } catch (error) {
         hideSaveProgress(); 
-        showNotification("操作失敗: " + err.message, 'error'); 
-      };
-
-      if (editingTitle) {
-        google.script.run.withSuccessHandler(handler).withFailureHandler(errorHandler)
-          .updateRecipe(editingTitle, title, ingredients, steps, bakingInfo);
-      } else {
-        google.script.run.withSuccessHandler(handler).withFailureHandler(errorHandler)
-          .saveRecipe(title, ingredients, steps, bakingInfo);
+        showNotification("操作失敗: " + error.message, 'error'); 
       }
     }
 
@@ -1014,15 +1048,16 @@
       addIngredientRow();
     }
 
-    function loadRecipes() {
-      google.script.run.withSuccessHandler(function(recipes) {
+    async function loadRecipes() {
+      try {
+        const recipes = await apiCall('/api/recipes');
         allRecipes = recipes; 
         applySort(); 
         updateStats();
         updateRecipeFilter(allRecipes); // 更新食譜名稱下拉選單
-      }).withFailureHandler(function(error) {
+      } catch (error) {
         showNotification('載入食譜時發生錯誤: ' + error.message, 'error');
-      }).getRecipes();
+      }
     }
 
     // 更新食譜名稱下拉選單
@@ -1161,14 +1196,19 @@
         updateConversionToolButton();
     }
 
-    function deleteRecipe(title) {
+    async function deleteRecipe(title) {
       if (!confirm(`確定要刪除「${title}」嗎？此操作無法還原。`)) return;
-      google.script.run.withSuccessHandler(function(res) { 
-        showNotification(res.message, 'success');
+      
+      try {
+        const result = await apiCall(`/api/recipes/${encodeURIComponent(title)}`, {
+          method: 'DELETE'
+        });
+        
+        showNotification(result.message, 'success');
         loadRecipes(); 
-      }).withFailureHandler(function(error) {
+      } catch (error) {
         showNotification('刪除食譜時發生錯誤: ' + error.message, 'error');
-      }).deleteRecipe(title);
+      }
     }
 
     function filterRecipes(doRender = true) {
@@ -1231,35 +1271,6 @@
         showNotification('Excel檔案已匯出', 'success');
     }
 
-    function diagnoseData() { 
-      google.script.run.withSuccessHandler(res => {
-        showNotification("診斷完成，請查看控制台", 'info');
-        console.log("診斷結果:", res);
-      }).withFailureHandler(error => {
-        showNotification('診斷數據時發生錯誤: ' + error.message, 'error');
-      }).diagnoseDataStructure(); 
-    }
-    
-    function fixDataStructure() { 
-      google.script.run.withSuccessHandler(res => { 
-        showNotification(res, 'success'); 
-        loadRecipes(); 
-      }).withFailureHandler(error => {
-        showNotification('修復數據結構時發生錯誤: ' + error.message, 'error');
-      }).fixDataStructure(); 
-    }
-    
-    function clearAllData() { 
-      if (confirm("確定要清除所有數據嗎？此操作無法撤銷！")) { 
-        google.script.run.withSuccessHandler(res => { 
-          showNotification(res, 'info'); 
-          loadRecipes(); 
-        }).withFailureHandler(error => {
-          showNotification('清除數據時發生錯誤: ' + error.message, 'error');
-        }).clearAllData(); 
-      } 
-    }
-    
     function renderCustomIngredients(ingredients) {
       const container = document.getElementById('custom-ingredients-list');
       container.innerHTML = `<h4>現有自訂食材</h4>`;
@@ -1285,32 +1296,42 @@
       container.appendChild(list);
     }
     
-    function saveCustomIngredient() {
+    async function saveCustomIngredient() {
         const name = document.getElementById('custom-ingredient-name').value.trim();
         const hydration = parseFloat(document.getElementById('custom-ingredient-hydration').value);
         if (!name || isNaN(hydration)) {
             showNotification('請輸入有效的食材名稱與含水率', 'error');
             return;
         }
-        const ingredient = { name, hydration };
-        google.script.run.withSuccessHandler(res => {
-            showNotification(res.message, 'success');
-            document.getElementById('custom-ingredient-name').value = '';
-            document.getElementById('custom-ingredient-hydration').value = '';
-            init(); // Re-initialize to load latest data and rebuild options
-        }).withFailureHandler(error => {
-            showNotification('儲存食材時發生錯誤: ' + error.message, 'error');
-        }).saveIngredientDB(ingredient);
+        
+        try {
+          const result = await apiCall('/api/ingredients_db', {
+            method: 'POST',
+            body: JSON.stringify({ name, hydration })
+          });
+          
+          showNotification(result.message, 'success');
+          document.getElementById('custom-ingredient-name').value = '';
+          document.getElementById('custom-ingredient-hydration').value = '';
+          init(); // Re-initialize to load latest data and rebuild options
+        } catch (error) {
+          showNotification('儲存食材時發生錯誤: ' + error.message, 'error');
+        }
     }
 
-    function deleteCustomIngredient(name) {
+    async function deleteCustomIngredient(name) {
       if (!confirm(`確定要刪除「${name}」嗎？`)) return;
-      google.script.run.withSuccessHandler(res => {
-        showNotification(res.message, 'success');
+      
+      try {
+        const result = await apiCall(`/api/ingredients_db/${encodeURIComponent(name)}`, {
+          method: 'DELETE'
+        });
+        
+        showNotification(result.message, 'success');
         init(); // Re-initialize to load latest data
-      }).withFailureHandler(error => {
+      } catch (error) {
         showNotification('刪除食材時發生錯誤: ' + error.message, 'error');
-      }).withUserObject(name).deleteIngredientDB(name);
+      }
     }
 
     // 新增：智能換算工具相關函數
@@ -1383,14 +1404,13 @@
       document.getElementById('conversionModal').classList.add('active');
     }
 
-
     function closeConversionModal() {
       document.getElementById('conversionModal').classList.remove('active');
       currentConversionRecipe = null;
       conversionResults = null;
     }
 
-    function calculateConversion() {
+    async function calculateConversion() {
       const originalFlour = parseFloat(document.getElementById('originalFlour').value);
       const newFlourInput = document.getElementById('newFlour').value;
       const includeNonPercentage = document.getElementById('includeNonPercentage').checked;
@@ -1405,115 +1425,24 @@
       const conversionRatio = newFlour / originalFlour;
       document.getElementById('conversionRatio').value = conversionRatio.toFixed(3);
       
-      // 修正：直接在前端計算換算結果，不呼叫伺服器端
-      if (currentConversionRecipe === editingTitle) {
-        // 從編輯表單計算
-        calculateConversionFromForm(conversionRatio, includeNonPercentage);
-      } else {
-        // 從食譜列表計算
-        calculateConversionFromRecipe(currentConversionRecipe, conversionRatio, includeNonPercentage);
-      }
-    }
-
-    // 新增：從編輯表單計算換算
-    function calculateConversionFromForm(conversionRatio, includeNonPercentage) {
-      const rows = document.querySelectorAll(".ingredient-grid");
-      const convertedIngredients = [];
-      
-      rows.forEach(row => {
-        const group = row.children[0].value;
-        const name = row.children[1].value;
-        const originalWeight = parseFloat(row.children[2].value) || 0;
-        const percent = row.children[3].value;
-        const desc = row.children[4].value;
-        
-        // 只有在百分比分組中的食材才進行換算，或者如果用戶選擇包含非百分比分組
-        let newWeight = originalWeight;
-        if (percentageGroups.includes(group) || includeNonPercentage) {
-          newWeight = originalWeight * conversionRatio;
-        }
-        
-        convertedIngredients.push({
-          group: group,
-          name: name,
-          weight: newWeight, // 修正：存儲新重量
-          originalWeight: originalWeight, // 修正：同時存儲原始重量用於顯示
-          percent: percent,
-          desc: desc
+      try {
+        const result = await apiCall('/api/calculate_conversion', {
+          method: 'POST',
+          body: JSON.stringify({
+            recipeTitle: currentConversionRecipe,
+            newTotalFlour: newFlour,
+            includeNonPercentage: includeNonPercentage
+          })
         });
-      });
-      
-      // 計算原始總麵粉量（用於顯示）
-      let originalTotalFlour = 0;
-      rows.forEach(row => {
-        const group = row.children[0].value;
-        const name = row.children[1].value;
-        const weight = parseFloat(row.children[2].value) || 0;
         
-        if (isFlour(name) && percentageGroups.includes(group)) {
-          originalTotalFlour += weight;
-        }
-      });
-      
-      conversionResults = {
-        status: "success",
-        originalTotalFlour: originalTotalFlour,
-        newTotalFlour: originalTotalFlour * conversionRatio,
-        conversionRatio: conversionRatio,
-        ingredients: convertedIngredients
-      };
-      
-      displayConversionResults();
-    }
-
-    // 新增：從食譜列表計算換算
-    function calculateConversionFromRecipe(recipeTitle, conversionRatio, includeNonPercentage) {
-      const recipe = allRecipes.find(r => r.title === recipeTitle);
-      if (!recipe) {
-        showNotification('找不到指定的食譜', 'error');
-        return;
+        conversionResults = result;
+        displayConversionResults();
+      } catch (error) {
+        showNotification('計算換算時發生錯誤: ' + error.message, 'error');
       }
-      
-      const convertedIngredients = recipe.ingredients.map(ing => {
-        let originalWeight = parseFloat(ing.weight) || 0;
-        let newWeight = originalWeight;
-        
-        // 只有在百分比分組中的食材才進行換算，或者如果用戶選擇包含非百分比分組
-        if (percentageGroups.includes(ing.group) || includeNonPercentage) {
-          newWeight = originalWeight * conversionRatio;
-        }
-        
-        return {
-          group: ing.group,
-          name: ing.name,
-          weight: newWeight, // 修正：存儲新重量
-          originalWeight: originalWeight, // 修正：同時存儲原始重量用於顯示
-          percent: ing.percent,
-          desc: ing.desc || ""
-        };
-      });
-      
-      // 計算原始總麵粉量
-      let originalTotalFlour = 0;
-      recipe.ingredients.forEach(ing => {
-        if (isFlour(ing.name) && percentageGroups.includes(ing.group)) {
-          originalTotalFlour += parseFloat(ing.weight) || 0;
-        }
-      });
-      
-      conversionResults = {
-        status: "success",
-        originalTotalFlour: originalTotalFlour,
-        newTotalFlour: originalTotalFlour * conversionRatio,
-        conversionRatio: conversionRatio,
-        ingredients: convertedIngredients,
-        recipe: recipe
-      };
-      
-      displayConversionResults();
     }
 
-   function displayConversionResults() {
+    function displayConversionResults() {
       if (!conversionResults) return;
       
       const tableContainer = document.getElementById('convertedIngredientsTable');
@@ -1530,7 +1459,6 @@
         html += `<tr class="ingredient-group-row"><td colspan="7"><strong>${group} 分組</strong></td></tr>`;
         
         groupedIngredients[group].forEach(ing => {
-          // 修正：使用存儲的原始重量和新重量
           const originalWeight = ing.originalWeight || (ing.weight / conversionResults.conversionRatio);
           const newWeight = ing.weight;
           const weightChange = newWeight - originalWeight;
@@ -1555,8 +1483,6 @@
       tableContainer.innerHTML = html;
       document.getElementById('conversionResults').style.display = 'block';
     }
-
-    window.onload = init;
 
     function copyConversionResults() {
       if (!conversionResults) return;
@@ -1597,7 +1523,7 @@
       });
     }
 
-   function applyConversionToForm() {
+    function applyConversionToForm() {
       if (!conversionResults || !editingTitle) {
         showNotification('無法應用到表單，請確認正在編輯食譜', 'error');
         return;
@@ -1609,18 +1535,17 @@
       
       // 添加換算後的食材
       conversionResults.ingredients.forEach(ing => {
-        // 修正：直接使用換算後的重量，不需要再乘以比例
         addIngredientRow(ing.name, ing.weight.toFixed(1), ing.percent, ing.desc, ing.group);
       });
       
-      // 修正：重新計算百分比和含水率
+      // 重新計算百分比和含水率
       calcPercentages();
       calcHydration();
       
       closeConversionModal();
       showNotification('換算結果已應用到編輯表單', 'success');
       
-      // 修正：更新換算工具按鈕顯示狀態
+      // 更新換算工具按鈕顯示狀態
       updateConversionToolButton();
     }
 

@@ -1,4 +1,4 @@
-# app.py (PostgreSQL 版本)
+# app.py (PostgreSQL 版本 - 修正後)
 import os
 import re
 from datetime import datetime
@@ -6,11 +6,11 @@ from flask import Flask, request, jsonify
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Float, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.types import TypeDecorator, Text
+from sqlalchemy.exc import ProgrammingError, OperationalError # 導入錯誤類型
 import json
 
 # --- 1. 設置資料庫連線 ---
 # Render 會自動提供 DATABASE_URL 環境變數
-# 注意：psycopg2 預設使用 postgres://，Render 使用 postgresql://，需要替換
 DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db').replace("postgres://", "postgresql://")
 
 # 設置 Flask 和 SQLAlchemy
@@ -22,7 +22,7 @@ engine = create_engine(DATABASE_URL)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
-# --- 2. 自訂 JSON 欄位類型 (用於儲存食譜中的食材列表) ---
+# --- 2. 自訂 JSON 欄位類型 ---
 class JSONEncodedDict(TypeDecorator):
     """將 Python 字典或列表儲存為 PostgreSQL 的 TEXT/JSONB 欄位。"""
     impl = Text
@@ -35,7 +35,10 @@ class JSONEncodedDict(TypeDecorator):
     
     def process_result_value(self, value, dialect):
         if value is not None:
-            return json.loads(value)
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value # 處理非標準 JSON 數據
         return value
 
 # --- 3. 定義資料模型 (Models) ---
@@ -84,16 +87,22 @@ class IngredientDB(Base):
 
 # 在應用程式啟動時創建資料表
 def init_db():
-    Base.metadata.create_all(engine)
+    try:
+        # 嘗試創建所有資料表
+        Base.metadata.create_all(engine)
+    except OperationalError as e:
+        # 處理資料庫連線錯誤（例如資料庫 URI 錯誤或服務未啟動）
+        print(f"Error initializing database tables: {e}")
+        # 在 Render 上如果資料庫還沒準備好，這裡可能會失敗，但 Gunicorn 會繼續運行
+    except Exception as e:
+        print(f"An unexpected error occurred during database initialization: {e}")
 
-# --- 4. 輔助函數 (與原 Apps Script 邏輯保持一致) ---
+# --- 4. 輔助函數 (保持不變) ---
 
-# 注意：因為這些函數不直接依賴資料庫讀寫，所以可以直接沿用或微調。
 def normalize_percent_value(p):
-    # (保持不變的 normalize_percent_value 函數邏輯)
+    # 保持原有的 normalize_percent_value 邏輯
     if p is None or p == "":
         return ""
-    # ... (此處省略詳細實現以保持簡潔，請確保使用上一個回答中的 Python 實現)
     if isinstance(p, str):
         s = p.strip()
         if s.endswith('%'):
@@ -114,8 +123,7 @@ def normalize_percent_value(p):
     return ""
     
 def calculate_hydration(ingredients, ingredients_db):
-    # (保持不變的 calculate_hydration 函數邏輯)
-    # ... (此處省略詳細實現以保持簡潔，請確保使用上一個回答中的 Python 實現)
+    # 保持原有的 calculate_hydration 邏輯
     flour_total = 0
     water_total = 0
     
@@ -170,14 +178,21 @@ def calculate_hydration(ingredients, ingredients_db):
     else:
         return "0%"
 
-# --- 5. API 路由 (替換數據讀寫邏輯) ---
+# --- 5. API 路由 (修正後) ---
 
 @app.route('/', methods=['GET'])
 def serve_index():
     """根路由：提供 index.html 內容。"""
-    with open('index.html', 'r', encoding='utf-8') as f:
-        return f.read()
+    try:
+        # 假設 index.html 在應用程式的根目錄
+        with open('index.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+         return "index.html not found", 500
 
+# --------------------------
+# 食譜列表路由
+# --------------------------
 @app.route('/api/recipes', methods=['GET'])
 def get_recipes():
     """取得所有食譜列表 (DB 讀取)。"""
@@ -194,8 +209,41 @@ def get_recipes():
             recipe['hydration'] = calculate_hydration(recipe.get('ingredients', []), ingredients_db)
             
         return jsonify(recipes_list)
+    except ProgrammingError as e:
+        # 處理資料表不存在的錯誤，返回空列表讓前端初始化
+        if "relation \"recipes\" does not exist" in str(e) or "relation \"ingredients_db\" does not exist" in str(e):
+             return jsonify([]), 200
+        raise # 拋出其他 ProgrammingError
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"載入食譜列表失敗: {str(e)}"}), 500
     finally:
         session.close()
+
+# --------------------------
+# 單一食譜操作路由 (使用 /api/recipe 及 Query String)
+# --------------------------
+
+@app.route('/api/recipe', methods=['GET'])
+def get_recipe_by_title():
+    """根據標題取得單一食譜 (DB 讀取，透過 Query String 傳入 title)。"""
+    title = request.args.get('title')
+    session = Session()
+    try:
+        recipe = session.query(Recipe).filter_by(title=title).first()
+        if recipe:
+            ingredients_db = [i.to_dict() for i in session.query(IngredientDB).all()]
+            recipe_dict = recipe.to_dict()
+            recipe_dict['hydration'] = calculate_hydration(recipe_dict.get('ingredients', []), ingredients_db)
+            return jsonify(recipe_dict)
+        else:
+            return jsonify({"status": "error", "message": f"找不到食譜：{title}"}), 404
+    except ProgrammingError as e:
+        if "relation \"recipes\" does not exist" in str(e):
+             return jsonify({"status": "error", "message": "資料庫表格尚未建立或連線失敗"}), 500
+        raise
+    finally:
+        session.close()
+
 
 @app.route('/api/recipe', methods=['POST'])
 def save_recipe():
@@ -236,10 +284,10 @@ def save_recipe():
     finally:
         session.close()
 
-@app.route('/api/recipe/<title>', methods=['PUT'])
-def update_recipe(title):
-    """修改食譜 (DB 更新)。"""
-    old_title = title
+@app.route('/api/recipe', methods=['PUT'])
+def update_recipe_by_title():
+    """修改食譜 (DB 更新，透過 Query String 傳入 title)。"""
+    old_title = request.args.get('title')
     recipe_data = request.json
     new_title = recipe_data.get('title')
 
@@ -275,9 +323,14 @@ def update_recipe(title):
     finally:
         session.close()
 
-@app.route('/api/recipe/<title>', methods=['DELETE'])
-def delete_recipe(title):
-    """刪除食譜 (DB 刪除)。"""
+@app.route('/api/recipe', methods=['DELETE'])
+def delete_recipe_by_title():
+    """刪除食譜 (DB 刪除，透過 Query String 傳入 title)。"""
+    title = request.args.get('title')
+    
+    if not title:
+        return jsonify({"status": "error", "message": "食譜名稱不能為空"}), 400
+        
     session = Session()
     try:
         recipe = session.query(Recipe).filter_by(title=title).first()
@@ -294,19 +347,29 @@ def delete_recipe(title):
     finally:
         session.close()
         
-# --- 食材資料庫路由 (DB 操作) ---
+# --------------------------
+# 食材資料庫路由 (統一為 /api/ingredients_db)
+# --------------------------
 
-@app.route('/api/ingredients', methods=['GET'])
+@app.route('/api/ingredients_db', methods=['GET'])
 def get_ingredients_db():
     """取得食材資料庫 (DB 讀取)。"""
     session = Session()
     try:
         ingredients_db = [i.to_dict() for i in session.query(IngredientDB).all()]
         return jsonify(ingredients_db)
+    except ProgrammingError as e:
+        # 處理資料表不存在的錯誤，這是首次部署或資料表名稱錯誤時常見的錯誤
+        if "relation \"ingredients_db\" does not exist" in str(e):
+             print("Warning: 'ingredients_db' table does not exist. Returning empty list.")
+             return jsonify([]), 200 # 回傳空列表和 200 狀態碼
+        raise # 拋出其他 ProgrammingError
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"載入食材資料庫失敗: {str(e)}"}), 500
     finally:
         session.close()
 
-@app.route('/api/ingredient', methods=['POST'])
+@app.route('/api/ingredients_db', methods=['POST'])
 def save_ingredient_db():
     """新增/修改食材資料庫 (DB 寫入)。"""
     ingredient = request.json
@@ -331,16 +394,25 @@ def save_ingredient_db():
             message = f"已新增食材：{name}"
         
         session.commit()
-        return jsonify({"status": "success", "message": message})
+        
+        # 成功後重新讀取整個資料庫並回傳，以便前端同步更新列表
+        updated_db = [i.to_dict() for i in session.query(IngredientDB).all()]
+        return jsonify({"status": "success", "message": message, "ingredients_db": updated_db})
+        
     except Exception as e:
         session.rollback()
         return jsonify({"status": "error", "message": f"操作失敗: {str(e)}"}), 500
     finally:
         session.close()
 
-@app.route('/api/ingredient/<name>', methods=['DELETE'])
-def delete_ingredient_db(name):
-    """刪除食材資料庫中的食材 (DB 刪除)。"""
+@app.route('/api/ingredients_db', methods=['DELETE'])
+def delete_ingredient_db():
+    """刪除食材資料庫中的食材 (DB 刪除，透過 Query String 傳入 name)。"""
+    name = request.args.get('name') # 修正：從 Query String 取得 name
+    
+    if not name:
+        return jsonify({"status": "error", "message": "食材名稱不能為空"}), 400
+        
     session = Session()
     try:
         item = session.query(IngredientDB).filter_by(name=name).first()
@@ -348,7 +420,10 @@ def delete_ingredient_db(name):
         if item:
             session.delete(item)
             session.commit()
-            return jsonify({"status": "success", "message": f"已刪除食材：{name}"})
+            
+            # 成功後重新讀取整個資料庫並回傳，以便前端同步更新列表
+            updated_db = [i.to_dict() for i in session.query(IngredientDB).all()]
+            return jsonify({"status": "success", "message": f"已刪除食材：{name}", "ingredients_db": updated_db})
         else:
             return jsonify({"status": "error", "message": f"找不到食材：{name}"}), 404
     except Exception as e:
@@ -357,7 +432,7 @@ def delete_ingredient_db(name):
     finally:
         session.close()
 
-# --- 統計資訊路由 (DB 讀取) ---
+# --- 統計資訊路由 (保持不變) ---
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -372,7 +447,8 @@ def get_stats():
         # 計算平均總重量
         total_weight_sum = 0
         for recipe in recipes:
-            recipe_weight = sum(float(ing.get('weight', 0) or 0) for ing in recipe.ingredients)
+            # 處理 recipe.ingredients 可能是 None 的情況
+            recipe_weight = sum(float(ing.get('weight', 0) or 0) for ing in (recipe.ingredients or [])) 
             total_weight_sum += recipe_weight
             
         avg_weight = round(total_weight_sum / total_recipes, 1) if total_recipes > 0 else 0
@@ -387,10 +463,17 @@ def get_stats():
             "avgWeight": avg_weight,
             "latestRecipe": latest_recipe_title
         })
+    except ProgrammingError as e:
+        # 處理資料表不存在的錯誤
+        if "relation \"recipes\" does not exist" in str(e) or "relation \"ingredients_db\" does not exist" in str(e):
+             return jsonify({
+                "totalRecipes": 0, "totalIngredients": 0, "avgWeight": 0, "latestRecipe": "-"
+            }), 200
+        raise
     finally:
         session.close()
 
-# --- 智能換算路由 (DB 讀取食材資料庫，食譜數據來自 POST body) ---
+# --- 智能換算路由 (保持不變) ---
 @app.route('/api/convert', methods=['POST'])
 def calculate_conversion_api():
     """計算智能食材換算。"""
@@ -412,8 +495,9 @@ def calculate_conversion_api():
 
         # 輔助函數：判斷是否為麵粉類食材
         def is_main_flour_ingredient(name):
+            # 修正：確保匹配邏輯與 Apps Script 一致
             return any(keyword in name for keyword in ["麵粉", "高筋", "低筋", "全麥", "裸麥"]) and not any(keyword in name for keyword in ["酵母", "泡打粉", "小蘇打", "可可粉", "抹茶粉"])
-        
+            
         def is_percentage_group(group_name):
             return not (group_name == "內餡" or group_name == "裝飾")
             
@@ -432,7 +516,7 @@ def calculate_conversion_api():
             is_main_flour = is_main_flour_ingredient(name)
             
             if is_main_flour or is_flour_by_db:
-                 original_total_flour += weight
+                  original_total_flour += weight
 
         if original_total_flour <= 0:
             return jsonify({ "status": "error", "message": "此食譜沒有麵粉食材或麵粉重量為0" }), 400
@@ -450,7 +534,7 @@ def calculate_conversion_api():
             
             if is_percentage_group(group) or include_non_percentage_groups:
                 if original_weight > 0:
-                    converted_ing['weight'] = round(original_weight * conversion_ratio * 10) / 10 
+                    converted_ing['weight'] = round(original_weight * conversion_ratio * 10) / 10
                 else:
                     converted_ing['weight'] = 0
             
@@ -463,25 +547,20 @@ def calculate_conversion_api():
             "conversionRatio": round(conversion_ratio, 3),
             "ingredients": converted_ingredients
         })
+    except ProgrammingError as e:
+        if "relation \"ingredients_db\" does not exist" in str(e):
+             return jsonify({ "status": "error", "message": "食材資料庫尚未建立，無法計算" }), 500
+        raise
     finally:
         session.close()
 
 
-    
-    # Render 環境通常會提供一個 PORT 變數
-    port = int(os.environ.get('PORT', 5000))
-    # 設置 host='0.0.0.0' 讓應用程式可以被外部網路訪問 (Render 需要)
-    app.run(host='0.0.0.0', port=port, debug=True)
-# app.py 結尾
-# ... (其他函數和路由) ...
-
-def init_db():
-    Base.metadata.create_all(engine)
-
+# --- 啟動資料庫與應用程式 ---
 # 確保在 Gunicorn 載入 app.py 模組時執行資料表創建
 init_db() 
 
 if __name__ == '__main__':
-    # ... (本地啟動邏輯) ...
-    pass
-
+    # Render 環境通常會提供一個 PORT 變數
+    port = int(os.environ.get('PORT', 5000))
+    # 設置 host='0.0.0.0' 讓應用程式可以被外部網路訪問 (Render 需要)
+    app.run(host='0.0.0.0', port=port, debug=True)

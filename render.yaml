@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: recipe-system
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: recipe_db
+          property: connectionString
+
+databases:
+  - name: recipe_db
+    plan: free
+    databaseName: recipes
+    user: recipe_user

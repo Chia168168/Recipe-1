@@ -1,21 +1,26 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-from models import db, Recipe, Ingredient, IngredientDB
-from database import init_db
 import os
 from datetime import datetime
 import json
-import re
+
+# 先設置環境變數，然後再導入其他模塊
+os.environ['PG8000_NATIVE'] = 'false'
+
+from models import db, Recipe, Ingredient, IngredientDB
+from database import init_db
 
 app = Flask(__name__)
 CORS(app)
 
-# 資料庫配置 - 修復 PostgreSQL 連接字串
+# 資料庫配置 - 使用 pg8000 驅動
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
 
-# 如果使用 PostgreSQL，修復連接字串格式
+# 修復 PostgreSQL 連接字串格式
 if database_url and database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    database_url = database_url.replace('postgres://', 'postgresql+pg8000://', 1)
+elif database_url and database_url.startswith('postgresql://'):
+    database_url = database_url.replace('postgresql://', 'postgresql+pg8000://', 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -106,7 +111,10 @@ def get_recipes():
 def save_recipe():
     """儲存食譜"""
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': '無效的 JSON 數據'}), 400
+            
         title = data.get('title')
         ingredients_data = data.get('ingredients', [])
         steps = data.get('steps', '')
@@ -190,7 +198,10 @@ def delete_recipe(title):
 def update_recipe(old_title):
     """更新食譜"""
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': '無效的 JSON 數據'}), 400
+            
         new_title = data.get('title')
         ingredients_data = data.get('ingredients', [])
         steps = data.get('steps', '')
@@ -250,7 +261,10 @@ def get_ingredients_db():
 def save_ingredient_db():
     """儲存食材到資料庫"""
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': '無效的 JSON 數據'}), 400
+            
         name = data.get('name')
         hydration = data.get('hydration')
         
@@ -293,7 +307,10 @@ def delete_ingredient_db(name):
 def calculate_conversion():
     """計算食材換算"""
     try:
-        data = request.json
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': '無效的 JSON 數據'}), 400
+            
         recipe_title = data.get('recipeTitle')
         new_total_flour = data.get('newTotalFlour')
         include_non_percentage = data.get('includeNonPercentage', False)

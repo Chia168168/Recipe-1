@@ -600,7 +600,57 @@
     // 新增：智能換算工具相關變數
     let currentConversionRecipe = null;
     let conversionResults = null;
+
+// --- 新增: 食材資料同步邏輯 ---
+// 將食材數據同步邏輯抽離，以便在初始化和後續更新時重複使用。
+// 接收來自後端回傳的最新 customIngredients 列表
+function syncIngredientsData(customIngredients) {
+    // 1. 重建 ingredientOptions 列表 (包含預設和自訂食材)
+    const customIngredientNames = customIngredients.map(ing => ing.name);
+    // 確保自訂食材名稱不與基礎食材重複
+    const uniqueCustomNames = customIngredientNames.filter(name => !baseIngredientOptions.includes(name));
+    ingredientOptions = [...baseIngredientOptions, ...uniqueCustomNames];
+
+    // 2. 重建 hydrationMap (使用預設值，然後用自訂數據覆蓋)
+    // 必須先重設為預設值，確保移除被刪除的自訂食材
+    hydrationMap = { "水": 1.0, "煉乳": 0.3, "鮮奶油": 0.5, "優格": 0.9, "奶油乳酪": 0.5, "牛奶": 0.9, "雞蛋": 0.75, "蜂蜜": 0.17 };
+    customIngredients.forEach(ing => {
+        // 將百分比 (例如 85) 轉換為小數 (例如 0.85)
+        hydrationMap[ing.name] = parseFloat(ing.hydration) / 100 || 0;
+    });
+}
+
+// --- 新增: 修正錯誤提示中缺失的函數 (updateIngredientSelects) ---
+// 此函數負責更新 UI 中的所有食材下拉選單
+function updateIngredientSelects(customIngredients) {
+    // 1. 同步數據
+    syncIngredientsData(customIngredients);
     
+    // 2. 更新所有食譜編輯表單中的食材下拉選單
+    document.querySelectorAll('.ingredient-name-select').forEach(selectEl => {
+        const selectedValue = selectEl.value; // 記錄使用者原先的選擇
+        
+        // 清除舊選項
+        selectEl.innerHTML = '';
+        
+        // 加入新選項
+        ingredientOptions.forEach(option => {
+            const newOption = document.createElement('option');
+            newOption.value = option;
+            newOption.textContent = option;
+            selectEl.appendChild(newOption);
+        });
+        
+        // 恢復原先的選擇
+        if (selectedValue && ingredientOptions.includes(selectedValue)) {
+            selectEl.value = selectedValue;
+        }
+    });
+    
+    // 3. 重新計算含水率 (因為 hydrationMap 變了)
+    calcHydration();
+}
+   
     // ====== 前端通知系統 ======
     function showNotification(message, type = 'success') {
       const notificationContainer = document.getElementById('notificationContainer');
@@ -635,44 +685,38 @@
     }
 
     // ====== 應用程式初始化 (取代 google.script.run.getIngredientsDB()) ======
-    async function init() {
-        try {
-            showNotification('正在載入自訂食材資料庫...', 'info');
-            // 呼叫 Flask API 載入自訂食材資料庫
-            const response = await fetch('/api/ingredients_db'); 
-            
-            if (!response.ok) {
-                // 如果 HTTP 狀態碼不是 200-299 則拋出錯誤
-                const errorData = await response.json();
-                throw new Error(errorData.message || `伺服器回傳 ${response.status}`);
-            }
-            
-            const customIngredients = await response.json(); // 假設 API 回傳 JSON 陣列
-
-            // UPDATED: Construct the final ingredient list in the correct order
-            const customIngredientNames = customIngredients.map(ing => ing.name);
-            // Ensure no duplicates from base list
-            const uniqueCustomNames = customIngredientNames.filter(name => !baseIngredientOptions.includes(name));
-            ingredientOptions = [...baseIngredientOptions, ...uniqueCustomNames];
-
-            // Update hydration map with custom and default values
-            customIngredients.forEach(ing => {
-              // 確保 ing.hydration 是數字
-              const hydrationValue = parseFloat(ing.hydration) || 0; 
-              hydrationMap[ing.name] = hydrationValue / 100;
-            });
-            
-            // 初始化表單和食譜列表
-            addIngredientRow();
-            await loadRecipes(); // 載入食譜後會自動更新統計數據
-            renderCustomIngredients(customIngredients);
-            showNotification('初始化完成！', 'success');
-
-        } catch (error) {
-            console.error('初始化錯誤:', error);
-            showNotification('初始化失敗: 無法載入自訂食材資料庫 (' + error.message + ')', 'error');
+// --- 替換您原有的 init() 函數 ---
+async function init() {
+    try {
+        showNotification('正在載入自訂食材資料庫...', 'info');
+        
+        // 呼叫 Flask API 載入自訂食材資料庫
+        const response = await fetch('/api/ingredients_db');
+        
+        if (!response.ok) {
+            // 修正：如果響應不是 JSON (例如 HTML 錯誤頁)，避免 JSON 解析錯誤
+            const text = await response.text();
+            throw new Error(`伺服器回傳 ${response.status}：${text.substring(0, 50)}...`);
         }
+        
+        const customIngredients = await response.json();
+
+        // *** 修正點：使用 updateIngredientSelects 統一處理數據同步和 UI 更新 ***
+        // 這個函數內部會處理 ingredientOptions 和 hydrationMap 的更新
+        updateIngredientSelects(customIngredients); 
+        
+        // 初始化表單和食譜列表
+        addIngredientRow();
+        await loadRecipes(); // 載入食譜列表
+        renderCustomIngredients(customIngredients); // 渲染設定頁面的自訂食材列表
+        
+        showNotification('初始化完成！', 'success');
+
+    } catch (error) {
+        console.error('初始化錯誤:', error);
+        showNotification('初始化失敗: 無法載入自訂食材資料庫 (' + error.message + ')', 'error');
     }
+}
     
     // ====== 食譜載入 (取代 google.script.run.getRecipes()) ======
     async function loadRecipes() {

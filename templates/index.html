@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -10,8 +9,8 @@
         header, footer { text-align: center; }
         nav { margin-bottom: 20px; }
         nav button { margin-right: 10px; }
-        section { display: none; margin-bottom: 20px; }
-        section.active { display: block; }
+        .tab-content { display: none; margin-bottom: 20px; }
+        .tab-content.active { display: block; }
         .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
         .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; }
         .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
@@ -27,7 +26,6 @@
     </style>
 </head>
 <body>
-
     <div id="modal-conversion" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeConversionModal()">&times;</span>
@@ -75,79 +73,79 @@
     </header>
 
     <nav>
-        <button onclick="showSection('manage')">食譜管理</button>
-        <button onclick="showSection('browse')">瀏覽食譜</button>
-        <button onclick="showSection('stats')">統計資訊</button>
-        <button onclick="showSection('settings')">設定</button>
+        <button onclick="showTab('recipeManage')">食譜管理</button>
+        <button onclick="showTab('recipeBrowse')">瀏覽食譜</button>
+        <button onclick="showTab('stats')">統計資訊</button>
+        <button onclick="showTab('settings')">設定</button>
     </nav>
 
-    <section id="manage-section" class="active">
+    <div id="recipeManage" class="tab-content active">
         <h2>新增 / 修改食譜</h2>
         <p>只有需要計算百分比的分組才必須包含麵粉食材。麵團餡料A和B不需要麵粉但仍會計算百分比。</p>
         <label>食譜名稱</label>
-        <input type="text" id="recipe-title">
+        <input type="text" id="recipeTitle">
         <input type="hidden" id="edit-mode" value="false">
         <input type="hidden" id="old-title" value="">
         <div id="ingredients-management">
             <h3>食材分組管理</h3>
             <button onclick="addGroup()">新增分組</button>
             <button onclick="openConversionModal()">智能換算工具</button>
-            <div id="ingredient-groups"></div>
+            <div id="ingredientGroups"></div>
             <button onclick="addIngredient()">新增食材</button>
-            <span id="hydration-display">含水率: 0%</span>
+            <span id="hydrationDisplay">含水率: 0%</span>
         </div>
         <label>製作步驟</label>
-        <textarea id="recipe-steps"></textarea>
+        <textarea id="recipeSteps"></textarea>
         <div id="baking-settings">
             <h3>烘烤設定</h3>
             <label>上火溫度 (°C)</label>
-            <input type="number" id="top-heat" value="200">
+            <input type="number" id="topHeat" value="200">
             <label>下火溫度 (°C)</label>
-            <input type="number" id="bottom-heat" value="200">
+            <input type="number" id="bottomHeat" value="200">
             <label>烘烤時間 (min)</label>
-            <input type="number" id="bake-time" value="30">
+            <input type="number" id="bakeTime" value="30">
             <input type="checkbox" id="convection"> <label for="convection">旋風</label>
             <input type="checkbox" id="steam"> <label for="steam">蒸汽</label>
         </div>
         <button onclick="saveOrUpdateRecipe()">儲存食譜</button>
         <button onclick="clearForm()">清除表單</button>
-    </section>
+    </div>
 
-    <section id="browse-section">
+    <div id="recipeBrowse" class="tab-content">
         <h2>食譜列表</h2>
         <button onclick="loadRecipes()">重新載入</button>
         <a href="/api/export_excel" download><button>匯出 Excel</button></a>
         <label>食譜名稱:</label>
-        <select id="recipe-filter">
+        <select id="recipeFilter">
             <option>全部食譜</option>
         </select>
-        <select id="sort-order">
+        <select id="sortOrder">
             <option value="timestamp_desc">建立時間 新→舊</option>
             <option value="timestamp_asc">建立時間 舊→新</option>
             <option value="title_asc">名稱 A→Z</option>
             <option value="title_desc">名稱 Z→A</option>
         </select>
-        <div id="recipe-list"></div>
-    </section>
+        <div id="recipeList"></div>
+    </div>
 
-    <section id="stats-section">
+    <div id="stats" class="tab-content">
         <h2>統計資訊</h2>
         <div>
-            <span id="total-recipes">0</span> 食譜總數
-            <span id="total-ingredients">0</span> 食材總數
-            <span id="avg-weight">0</span> 平均重量 (g)
-            <span id="latest-recipe">-</span> 最新食譜
+            <span id="totalRecipes">0</span> 食譜總數
+            <span id="totalIngredients">0</span> 食材總數
+            <span id="avgWeight">0</span> 平均重量 (g)
+            <span id="latestRecipe">-</span> 最新食譜
         </div>
-    </section>
+    </div>
 
-    <section id="settings-section">
+    <div id="settings" class="tab-content">
         <h2>自訂食材資料庫</h2>
         <p>在此新增或修改食材的含水率(%)，會自動應用到食譜管理的計算中。</p>
-        <input type="text" id="ing-name" placeholder="食材名稱">
-        <input type="number" id="ing-hydration" placeholder="含水率 (%)">
+        <input type="text" id="ingName" placeholder="食材名稱">
+        <input type="number" id="ingHydration" placeholder="含水率 (%)">
         <button onclick="saveIngredientDB()">新增/更新</button>
-        <div id="ingredients-db-list"></div>
-    </section>
+        <div id="ingredientsDBList"></div>
+    </div>
 
     <footer>
         TENG食譜管理系統 v3.1 © 2023-2025 - 專業烘焙食譜管理工具
@@ -159,13 +157,14 @@
         let currentRecipeTitleForConversion = '';
         let originalTotalFlour = 0;
         let recipes = [];
+        let convertedIngredients = [];
 
-        function showSection(section) {
-            document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
-            document.getElementById(`${section}-section`).classList.add('active');
-            if (section === 'browse') loadRecipes();
-            if (section === 'stats') loadStats();
-            if (section === 'settings') loadIngredientsDB();
+        function showTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
+            document.getElementById(tab).classList.add('active');
+            if (tab === 'recipeBrowse') loadRecipes();
+            if (tab === 'stats') loadStats();
+            if (tab === 'settings') loadIngredientsDB();
         }
 
         function addGroup() {
@@ -176,11 +175,11 @@
                 <div class="ingredients"></div>
                 <button onclick="addIngredientToGroup(this.parentElement)">新增食材到此分組</button>
             `;
-            document.getElementById('ingredient-groups').appendChild(groupDiv);
+            document.getElementById('ingredientGroups').appendChild(groupDiv);
         }
 
         function addIngredient() {
-            addIngredientToGroup(document.getElementById('ingredient-groups').lastChild || addGroup());
+            addIngredientToGroup(document.getElementById('ingredientGroups').lastChild || addGroup());
         }
 
         function addIngredientToGroup(group) {
@@ -202,7 +201,7 @@
                 const db = await fetch('/api/ingredients_db').then(res => res.json());
                 const ing = db.find(i => i.name === name);
                 const hydration = ing ? ing.hydration : 0;
-                document.getElementById('hydration-display').textContent = `含水率: ${hydration}%`;
+                document.getElementById('hydrationDisplay').textContent = `含水率: ${hydration}%`;
             }
         }
 
@@ -224,13 +223,13 @@
         }
 
         function saveOrUpdateRecipe() {
-            const title = document.getElementById('recipe-title').value;
+            const title = document.getElementById('recipeTitle').value;
             const ingredients = collectIngredients();
-            const steps = document.getElementById('recipe-steps').value;
+            const steps = document.getElementById('recipeSteps').value;
             const bakingInfo = {
-                topHeat: parseInt(document.getElementById('top-heat').value),
-                bottomHeat: parseInt(document.getElementById('bottom-heat').value),
-                time: parseInt(document.getElementById('bake-time').value),
+                topHeat: parseInt(document.getElementById('topHeat').value) || 200,
+                bottomHeat: parseInt(document.getElementById('bottomHeat').value) || 200,
+                time: parseInt(document.getElementById('bakeTime').value) || 30,
                 convection: document.getElementById('convection').checked,
                 steam: document.getElementById('steam').checked
             };
@@ -239,16 +238,17 @@
 
             showLoading(true);
             const endpoint = editMode ? '/api/update_recipe' : '/api/save_recipe';
-            const body = editMode ? {oldTitle, newTitle: title, ingredients, steps, bakingInfo} : {title, ingredients, steps, bakingInfo};
+            const body = editMode ? { oldTitle, newTitle: title, ingredients, steps, bakingInfo } : { title, ingredients, steps, bakingInfo };
 
             fetch(endpoint, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             }).then(res => res.json()).then(data => {
                 showLoading(false);
                 alert(data.message || '儲存成功');
                 clearForm();
+                loadRecipes();
             }).catch(err => {
                 showLoading(false);
                 alert('錯誤: ' + err);
@@ -256,14 +256,14 @@
         }
 
         function clearForm() {
-            document.getElementById('recipe-title').value = '';
-            document.getElementById('recipe-steps').value = '';
-            document.getElementById('top-heat').value = 200;
-            document.getElementById('bottom-heat').value = 200;
-            document.getElementById('bake-time').value = 30;
+            document.getElementById('recipeTitle').value = '';
+            document.getElementById('recipeSteps').value = '';
+            document.getElementById('topHeat').value = 200;
+            document.getElementById('bottomHeat').value = 200;
+            document.getElementById('bakeTime').value = 30;
             document.getElementById('convection').checked = false;
             document.getElementById('steam').checked = false;
-            document.getElementById('ingredient-groups').innerHTML = '';
+            document.getElementById('ingredientGroups').innerHTML = '';
             document.getElementById('edit-mode').value = 'false';
             document.getElementById('old-title').value = '';
         }
@@ -273,12 +273,11 @@
                 recipes = data;
                 populateFilter();
                 displayRecipes();
-                populateStats();
             });
         }
 
         function populateFilter() {
-            const filter = document.getElementById('recipe-filter');
+            const filter = document.getElementById('recipeFilter');
             filter.innerHTML = '<option>全部食譜</option>';
             recipes.forEach(r => {
                 const option = document.createElement('option');
@@ -289,16 +288,16 @@
         }
 
         function displayRecipes() {
-            const filter = document.getElementById('recipe-filter').value;
-            const sort = document.getElementById('sort-order').value;
+            const filter = document.getElementById('recipeFilter').value;
+            const sort = document.getElementById('sortOrder').value;
             let filtered = filter === '全部食譜' ? recipes : recipes.filter(r => r.title === filter);
 
-            if (sort === 'timestamp_desc') filtered.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-            if (sort === 'timestamp_asc') filtered.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-            if (sort === 'title_asc') filtered.sort((a,b) => a.title.localeCompare(b.title));
-            if (sort === 'title_desc') filtered.sort((a,b) => b.title.localeCompare(a.title));
+            if (sort === 'timestamp_desc') filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            if (sort === 'timestamp_asc') filtered.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            if (sort === 'title_asc') filtered.sort((a, b) => a.title.localeCompare(b.title));
+            if (sort === 'title_desc') filtered.sort((a, b) => b.title.localeCompare(a.title));
 
-            const list = document.getElementById('recipe-list');
+            const list = document.getElementById('recipeList');
             list.innerHTML = '';
             filtered.forEach(r => {
                 const card = document.createElement('div');
@@ -318,18 +317,18 @@
             });
         }
 
-        document.getElementById('recipe-filter').addEventListener('change', displayRecipes);
-        document.getElementById('sort-order').addEventListener('change', displayRecipes);
+        document.getElementById('recipeFilter').addEventListener('change', displayRecipes);
+        document.getElementById('sortOrder').addEventListener('change', displayRecipes);
 
         function editRecipe(title) {
             const recipe = recipes.find(r => r.title === title);
             if (!recipe) return;
 
-            document.getElementById('recipe-title').value = recipe.title;
-            document.getElementById('recipe-steps').value = recipe.steps;
-            document.getElementById('top-heat').value = recipe.baking.topHeat;
-            document.getElementById('bottom-heat').value = recipe.baking.bottomHeat;
-            document.getElementById('bake-time').value = recipe.baking.time;
+            document.getElementById('recipeTitle').value = recipe.title;
+            document.getElementById('recipeSteps').value = recipe.steps;
+            document.getElementById('topHeat').value = recipe.baking.topHeat;
+            document.getElementById('bottomHeat').value = recipe.baking.bottomHeat;
+            document.getElementById('bakeTime').value = recipe.baking.time;
             document.getElementById('convection').checked = recipe.baking.convection;
             document.getElementById('steam').checked = recipe.baking.steam;
 
@@ -339,7 +338,7 @@
                 groups[i.group].push(i);
             });
 
-            const groupContainer = document.getElementById('ingredient-groups');
+            const groupContainer = document.getElementById('ingredientGroups');
             groupContainer.innerHTML = '';
             Object.keys(groups).forEach(g => {
                 addGroup();
@@ -357,12 +356,12 @@
 
             document.getElementById('edit-mode').value = 'true';
             document.getElementById('old-title').value = title;
-            showSection('manage');
+            showTab('recipeManage');
         }
 
         function deleteRecipe(title) {
             if (confirm(`確認刪除 ${title}?`)) {
-                fetch(`/api/delete_recipe?title=${title}`, {method: 'DELETE'}).then(res => res.json()).then(data => {
+                fetch(`/api/delete_recipe?title=${title}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                     alert(data.message);
                     loadRecipes();
                 });
@@ -370,26 +369,28 @@
         }
 
         function loadStats() {
-            if (recipes.length === 0) loadRecipes();
-            const totalRecipes = recipes.length;
-            let totalIngredients = 0;
-            let totalWeight = 0;
-            recipes.forEach(r => {
-                totalIngredients += r.ingredients.length;
-                r.ingredients.forEach(i => totalWeight += i.weight);
-            });
-            const avgWeight = totalRecipes > 0 ? (totalWeight / totalIngredients).toFixed(2) : 0;
-            const latest = recipes.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp))[0]?.title || '-';
+            fetch('/api/recipes').then(res => res.json()).then(data => {
+                recipes = data;
+                const totalRecipes = recipes.length;
+                let totalIngredients = 0;
+                let totalWeight = 0;
+                recipes.forEach(r => {
+                    totalIngredients += r.ingredients.length;
+                    r.ingredients.forEach(i => totalWeight += i.weight);
+                });
+                const avgWeight = totalIngredients > 0 ? (totalWeight / totalIngredients).toFixed(2) : 0;
+                const latest = recipes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0]?.title || '-';
 
-            document.getElementById('total-recipes').textContent = totalRecipes;
-            document.getElementById('total-ingredients').textContent = totalIngredients;
-            document.getElementById('avg-weight').textContent = avgWeight;
-            document.getElementById('latest-recipe').textContent = latest;
+                document.getElementById('totalRecipes').textContent = totalRecipes;
+                document.getElementById('totalIngredients').textContent = totalIngredients;
+                document.getElementById('avgWeight').textContent = avgWeight;
+                document.getElementById('latestRecipe').textContent = latest;
+            });
         }
 
         function loadIngredientsDB() {
             fetch('/api/ingredients_db').then(res => res.json()).then(data => {
-                const list = document.getElementById('ingredients-db-list');
+                const list = document.getElementById('ingredientsDBList');
                 list.innerHTML = '';
                 data.forEach(i => {
                     const item = document.createElement('div');
@@ -401,14 +402,14 @@
         }
 
         function saveIngredientDB() {
-            const name = document.getElementById('ing-name').value;
-            const hydration = parseFloat(document.getElementById('ing-hydration').value);
+            const name = document.getElementById('ingName').value;
+            const hydration = parseFloat(document.getElementById('ingHydration').value);
             if (!name) return alert('請輸入食材名稱');
 
             fetch('/api/save_ingredient_db', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name, hydration})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, hydration })
             }).then(res => res.json()).then(data => {
                 alert(data.message);
                 loadIngredientsDB();
@@ -417,7 +418,7 @@
 
         function deleteIngredientDB(name) {
             if (confirm(`確認刪除 ${name}?`)) {
-                fetch(`/api/delete_ingredient_db?name=${name}`, {method: 'DELETE'}).then(res => res.json()).then(data => {
+                fetch(`/api/delete_ingredient_db?name=${name}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
                     alert(data.message);
                     loadIngredientsDB();
                 });
@@ -425,11 +426,11 @@
         }
 
         function openConversionModal() {
-            const title = document.getElementById('recipe-title').value;
+            const title = document.getElementById('recipeTitle').value;
             if (!title) return alert('請先輸入食譜名稱或選擇食譜');
 
             currentRecipeTitleForConversion = title;
-            calculateOriginalFlour(title);
+            calculateOriginalFlour();
             document.getElementById('modal-conversion').style.display = 'block';
         }
 
@@ -437,19 +438,21 @@
             document.getElementById('modal-conversion').style.display = 'none';
         }
 
-        function calculateOriginalFlour(title) {
-            const recipe = recipes.find(r => r.title === title);
-            if (!recipe) return;
+        function calculateOriginalFlour() {
+            fetch('/api/recipes').then(res => res.json()).then(data => {
+                const recipe = data.find(r => r.title === currentRecipeTitleForConversion);
+                if (!recipe) return alert('找不到食譜');
 
-            let totalFlour = 0;
-            recipe.ingredients.forEach(ing => {
-                if (isFlourIngredient(ing.name) && isPercentageGroup(ing.group)) {
-                    totalFlour += ing.weight;
-                }
+                let totalFlour = 0;
+                recipe.ingredients.forEach(ing => {
+                    if (isFlourIngredient(ing.name) && isPercentageGroup(ing.group)) {
+                        totalFlour += ing.weight;
+                    }
+                });
+                originalTotalFlour = totalFlour;
+                document.getElementById('original-flour').value = totalFlour;
+                setRatio(1);
             });
-            originalTotalFlour = totalFlour;
-            document.getElementById('original-flour').value = totalFlour;
-            setRatio(1);
         }
 
         function setRatio(ratio) {
@@ -464,7 +467,7 @@
 
             fetch('/api/calculate_conversion', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     recipeTitle: currentRecipeTitleForConversion,
                     newTotalFlour,
@@ -473,6 +476,7 @@
             }).then(res => res.json()).then(data => {
                 if (data.status === 'error') return alert(data.message);
 
+                convertedIngredients = data.ingredients;
                 const resultDiv = document.getElementById('converted-ingredients');
                 resultDiv.innerHTML = '<ul>' + data.ingredients.map(i => `<li>${i.group}: ${i.name} - ${i.weight}g (${i.percent}) - ${i.desc}</li>`).join('') + '</ul>';
             });
@@ -484,10 +488,32 @@
         }
 
         function applyToEditForm() {
-            // Assuming we fetch the converted data again or store it
-            // For simplicity, reload the form with converted data
-            // This would require storing the converted ingredients temporarily
-            alert('應用功能待實現'); // Implement as needed
+            if (convertedIngredients.length === 0) return alert('請先計算換算結果');
+
+            const groups = {};
+            convertedIngredients.forEach(i => {
+                if (!groups[i.group]) groups[i.group] = [];
+                groups[i.group].push(i);
+            });
+
+            const groupContainer = document.getElementById('ingredientGroups');
+            groupContainer.innerHTML = '';
+            Object.keys(groups).forEach(g => {
+                addGroup();
+                const groupDiv = groupContainer.lastChild;
+                groupDiv.querySelector('.group-name').value = g;
+                groups[g].forEach(ing => {
+                    addIngredientToGroup(groupDiv);
+                    const ingDiv = groupDiv.querySelector('.ingredients').lastChild;
+                    ingDiv.querySelector('.ing-name').value = ing.name;
+                    ingDiv.querySelector('.ing-weight').value = ing.weight;
+                    ingDiv.querySelector('.ing-percent').value = ing.percent;
+                    ingDiv.querySelector('.ing-desc').value = ing.desc;
+                });
+            });
+
+            closeConversionModal();
+            showTab('recipeManage');
         }
 
         function isFlourIngredient(name) {
@@ -506,6 +532,7 @@
 
         // Initial load
         loadRecipes();
+        showTab('recipeManage');
     </script>
 </body>
 </html>

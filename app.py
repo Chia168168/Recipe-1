@@ -467,10 +467,6 @@ def calculate_conversion_api():
         session.close()
 
 
-if __name__ == '__main__':
-    # 在本地運行時，會創建或連接到 SQLite 檔案
-    # 在 Render 上，它會連接到 PostgreSQL 服務
-    init_db()
     
     # Render 環境通常會提供一個 PORT 變數
     port = int(os.environ.get('PORT', 5000))

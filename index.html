@@ -520,7 +520,58 @@
         </div>
       </div>
     </div>
+<div id="editorTab" class="tab-content">
+    <div class="form-section">
+        <label for="recipe-title">食譜名稱 *</label>
+        <input type="text" id="recipe-title" placeholder="輸入食譜名稱 (例如: 法式長棍麵包)" required>
+    </div>
 
+    <div class="form-section">
+        <h2>食材列表</h2>
+        <div class="flour-warning">
+            <i class="fas fa-exclamation-triangle"></i> 麵粉必須在**百分比分組**中計算。
+        </div>
+        <div id="ingredients-container">
+            </div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" onclick="addGroup()"><i class="fas fa-layer-group"></i> 新增分組</button>
+            <button class="btn btn-secondary" onclick="addIngredientRow()"><i class="fas fa-plus"></i> 新增食材</button>
+        </div>
+        <h3 id="hydration-display" class="hydration-info">含水率: 0% (請先加入麵粉)</h3>
+    </div>
+
+    <div class="form-section">
+        <h2>烘烤設定 (選填)</h2>
+        <div class="baking-grid">
+            <div>
+                <label for="top-heat">上火溫度 (°C)</label>
+                <input type="number" id="top-heat" placeholder="例如: 220">
+            </div>
+            <div>
+                <label for="bottom-heat">下火溫度 (°C)</label>
+                <input type="number" id="bottom-heat" placeholder="例如: 220">
+            </div>
+            <div>
+                <label for="baking-time">烘烤時間 (min)</label>
+                <input type="number" id="baking-time" placeholder="例如: 30">
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="convection">
+                <label for="convection">啟用旋風</label>
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="steam">
+                <label for="steam">啟用蒸汽</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-actions bottom-actions">
+        <button id="open-conversion-btn" class="btn btn-info disabled" onclick="openConversionModal()"><i class="fas fa-calculator"></i> 智能換算</button>
+        <button class="btn btn-primary" onclick="saveRecipe()"><i class="fas fa-save"></i> 儲存食譜</button>
+        <button class="btn btn-warning" onclick="resetForm()"><i class="fas fa-undo"></i> 重置</button>
+    </div>
+</div>
     <div id="browseTab" class="tab-content">
        <div class="card">
         <div class="card-title"><i class="fas fa-book"></i><h2>食譜列表</h2></div>
@@ -591,6 +642,7 @@
   </div>
 
   <div id="saveProgress" class="save-progress"><i class="fas fa-spinner fa-spin"></i><p>儲存中，請稍候...</p></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
     const baseIngredientOptions = [ "高筋麵粉", "中筋麵粉", "低筋麵粉", "全麥麵粉", "裸麥粉", "麵粉", "水", "牛奶", "糖", "鹽", "蜂蜜", "酵母", "泡打粉", "奶油", "鮮奶油", "奶油乳酪", "奶粉", "煉乳", "雞蛋", "優格", "酒", "香草精" ];
@@ -609,7 +661,7 @@
     let currentConversionRecipe = null;
     let conversionResults = null;
 
-    // --- 安全輔助函數 ---
+    // --- 安全輔助函數 (用於獲取元素值) ---
     function getElementValue(id, defaultValue = '') {
         const el = document.getElementById(id);
         return el ? el.value : defaultValue;
@@ -1011,11 +1063,10 @@
         }
     }
 
-    // --- 修正: 確保 'recipe-list' 元素存在 ---
+    // --- 修正 1: 確保食譜列表顯示含水率，並加上防禦性程式碼 ---
     function renderRecipes(recipes) {
         const list = document.getElementById('recipe-list');
         
-        // 關鍵修正：檢查元素是否存在
         if (!list) {
             console.error("HTML element with ID 'recipe-list' not found. Please check your HTML structure.");
             showNotification('錯誤：找不到食譜列表顯示區域 (ID: recipe-list)', 'error');
@@ -1026,9 +1077,11 @@
         recipes.forEach(recipe => {
             const card = document.createElement('div');
             card.className = 'recipe-card';
+            // 使用 || 'N/A' 確保 hydration 缺失時不導致錯誤，並正常顯示名稱
+            const hydrationDisplay = recipe.hydration ? `${recipe.hydration}` : 'N/A';
             card.innerHTML = `
                 <h3>${recipe.title}</h3>
-                <p>含水率: ${recipe.hydration}</p>
+                <p>含水率: ${hydrationDisplay}</p>
                 <div class="card-actions">
                     <button onclick="editRecipe('${recipe.title.replace(/'/g, "\\'")}')" class="btn btn-icon btn-edit"><i class="fas fa-edit"></i></button>
                     <button onclick="deleteRecipe('${recipe.title.replace(/'/g, "\\'")}')" class="btn btn-icon btn-delete"><i class="fas fa-trash"></i></button>
@@ -1038,6 +1091,7 @@
         });
     }
 
+    // --- 修正 2: 在 Edit 函數中加入空值檢查 (解決 Uncaught TypeError) ---
     function editRecipe(title) {
         const recipe = allRecipes.find(r => r.title === title);
         if (!recipe) {
@@ -1047,11 +1101,16 @@
         
         resetForm();
         editingTitle = title;
-        document.getElementById('recipe-title').value = recipe.title;
-        document.getElementById('recipe-title').readOnly = true;
+        
+        // 安全設定食譜標題
+        const titleEl = document.getElementById('recipe-title');
+        if (titleEl) {
+            titleEl.value = recipe.title;
+            titleEl.readOnly = true;
+        }
 
         const ingredientsContainer = document.getElementById('ingredients-container');
-        ingredientsContainer.innerHTML = '';
+        if (ingredientsContainer) ingredientsContainer.innerHTML = '';
         currentGroups = {};
 
         const groups = {};
@@ -1071,16 +1130,26 @@
 
             if (isFirstGroup) {
                  const stepsTextarea = document.getElementById('recipe-steps');
-                 if (stepsTextarea) stepsTextarea.value = recipe.steps;
+                 if (stepsTextarea) stepsTextarea.value = recipe.steps || '';
                  isFirstGroup = false;
             }
         }
         
-        document.getElementById('top-heat').value = recipe.baking.topHeat || '';
-        document.getElementById('bottom-heat').value = recipe.baking.bottomHeat || '';
-        document.getElementById('baking-time').value = recipe.baking.time || '';
-        document.getElementById('convection').checked = recipe.baking.convection || false;
-        document.getElementById('steam').checked = recipe.baking.steam || false;
+        // 安全設定烘烤資訊 (解決 Uncaught TypeError 的關鍵修正點)
+        const heatTopEl = document.getElementById('top-heat');
+        if (heatTopEl) heatTopEl.value = recipe.baking.topHeat || '';
+        
+        const heatBottomEl = document.getElementById('bottom-heat');
+        if (heatBottomEl) heatBottomEl.value = recipe.baking.bottomHeat || '';
+        
+        const timeEl = document.getElementById('baking-time');
+        if (timeEl) timeEl.value = recipe.baking.time || '';
+
+        const convectionEl = document.getElementById('convection');
+        if (convectionEl) convectionEl.checked = recipe.baking.convection || false;
+        
+        const steamEl = document.getElementById('steam');
+        if (steamEl) steamEl.checked = recipe.baking.steam || false;
 
         calcHydration();
         window.scrollTo(0, 0);
@@ -1161,7 +1230,7 @@
         }
     }
 
-    // --- Excel 匯入/匯出功能 ---
+    // --- Excel 匯入/匯出功能 (保持不變) ---
 
     async function exportAllDataToExcel() {
         if (allRecipes.length === 0) {
@@ -1408,7 +1477,7 @@
 
     function renderConvertedIngredients(ingredients) {
         const list = document.getElementById('converted-list');
-        if (!list) return; // 安全檢查
+        if (!list) return;
         list.innerHTML = '';
         const groups = {};
         ingredients.forEach(ing => {
@@ -1469,11 +1538,20 @@
         const stepsTextarea = document.getElementById('recipe-steps');
         if (stepsTextarea) stepsTextarea.value = recipeData.steps;
 
-        document.getElementById('top-heat').value = recipeData.baking.topHeat;
-        document.getElementById('bottom-heat').value = recipeData.baking.bottomHeat;
-        document.getElementById('baking-time').value = recipeData.baking.time;
-        document.getElementById('convection').checked = recipeData.baking.convection;
-        document.getElementById('steam').checked = recipeData.baking.steam;
+        const heatTopEl = document.getElementById('top-heat');
+        if (heatTopEl) heatTopEl.value = recipeData.baking.topHeat;
+        
+        const heatBottomEl = document.getElementById('bottom-heat');
+        if (heatBottomEl) heatBottomEl.value = recipeData.baking.bottomHeat;
+        
+        const timeEl = document.getElementById('baking-time');
+        if (timeEl) timeEl.value = recipeData.baking.time;
+
+        const convectionEl = document.getElementById('convection');
+        if (convectionEl) convectionEl.checked = recipeData.baking.convection;
+        
+        const steamEl = document.getElementById('steam');
+        if (steamEl) steamEl.checked = recipeData.baking.steam;
 
         closeConversionModal();
         calcHydration();
@@ -1544,7 +1622,7 @@
 
     function renderCustomIngredients(ingredients) {
         const list = document.getElementById('custom-ingredient-list');
-        if (!list) return; // 安全檢查
+        if (!list) return;
         list.innerHTML = '';
         ingredients.forEach(ing => {
             const li = document.createElement('li');

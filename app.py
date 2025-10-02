@@ -16,6 +16,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # 初始化資料庫
 init_db(app)
 
+# 其餘程式碼保持不變...
+
 # 常量定義
 PERCENTAGE_GROUPS = ["主麵團", "麵團餡料A", "麵團餡料B", "波蘭種", "液種", "中種", "魯班種"]
 FLOUR_CHECK_GROUPS = ["主麵團", "波蘭種", "液種", "中種", "魯班種"]

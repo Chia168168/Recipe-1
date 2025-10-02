@@ -3,7 +3,6 @@ from flask_cors import CORS
 import os
 from datetime import datetime
 import json
-import ssl
 
 # 設置環境變數
 os.environ['PG8000_NATIVE'] = 'false'
@@ -14,53 +13,31 @@ from database import init_db
 app = Flask(__name__)
 CORS(app)
 
-# 資料庫配置 - 啟用 SSL
+# 資料庫配置
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
 
-# 修復 PostgreSQL 連接字串格式並啟用 SSL
+# 修復 PostgreSQL 連接字串格式
 if database_url and database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql+pg8000://', 1)
-    # 添加 SSL 參數
-    if '?' in database_url:
-        database_url += '&sslmode=require'
-    else:
-        database_url += '?sslmode=require'
 elif database_url and database_url.startswith('postgresql://'):
     database_url = database_url.replace('postgresql://', 'postgresql+pg8000://', 1)
-    # 添加 SSL 參數
-    if '?' in database_url:
-        database_url += '&sslmode=require'
-    else:
-        database_url += '?sslmode=require'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
-    'pool_pre_ping': True,
-    'connect_args': {
-        'ssl_context': ssl.create_default_context()
-    }
+    'pool_pre_ping': True
 }
 
-# 初始化資料庫
+# 全域變數來儲存資料庫錯誤
+db_error = None
+
 try:
     init_db(app)
     print("資料庫初始化成功")
 except Exception as e:
+    db_error = e
     print(f"資料庫初始化失敗: {e}")
-    # 如果資料庫初始化失敗，我們仍然啟動應用，但提供錯誤頁面
-    @app.route('/')
-    def index_error():
-        return """
-        <html>
-            <body>
-                <h1>資料庫連接錯誤</h1>
-                <p>無法連接到資料庫。請檢查資料庫配置。</p>
-                <p>錯誤信息: {}</p>
-            </body>
-        </html>
-        """.format(str(e)), 500
 
 # 常量定義
 PERCENTAGE_GROUPS = ["主麵團", "麵團餡料A", "麵團餡料B", "波蘭種", "液種", "中種", "魯班種"]
@@ -91,14 +68,29 @@ def normalize_percent_value(p):
     
     return p / 100 if p > 1 else p
 
-# API 路由
+# 根路由 - 根據資料庫狀態返回不同內容
 @app.route('/')
 def index():
+    if db_error:
+        return f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h1>資料庫連接錯誤</h1>
+                <p>無法連接到資料庫。請檢查資料庫配置。</p>
+                <p>錯誤信息: {str(db_error)}</p>
+                <p>應用程式仍在運行，但資料庫功能不可用。</p>
+            </body>
+        </html>
+        """, 500
     return render_template('index.html')
 
+# API 路由 - 如果資料庫有錯誤，返回錯誤信息
 @app.route('/api/recipes', methods=['GET'])
 def get_recipes():
     """取得所有食譜"""
+    if db_error:
+        return jsonify({'error': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         recipes = Recipe.query.all()
         result = []
@@ -140,6 +132,9 @@ def get_recipes():
 @app.route('/api/recipes', methods=['POST'])
 def save_recipe():
     """儲存食譜"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         data = request.get_json()
         if not data:
@@ -211,6 +206,9 @@ def save_recipe():
 @app.route('/api/recipes/<title>', methods=['DELETE'])
 def delete_recipe(title):
     """刪除食譜"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         recipe = Recipe.query.filter_by(title=title).first()
         if not recipe:
@@ -227,6 +225,9 @@ def delete_recipe(title):
 @app.route('/api/recipes/<old_title>', methods=['PUT'])
 def update_recipe(old_title):
     """更新食譜"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         data = request.get_json()
         if not data:
@@ -280,6 +281,9 @@ def update_recipe(old_title):
 @app.route('/api/ingredients_db', methods=['GET'])
 def get_ingredients_db():
     """取得食材資料庫"""
+    if db_error:
+        return jsonify({'error': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         ingredients = IngredientDB.query.all()
         result = [{'name': ing.name, 'hydration': float(ing.hydration) if ing.hydration else 0} for ing in ingredients]
@@ -290,6 +294,9 @@ def get_ingredients_db():
 @app.route('/api/ingredients_db', methods=['POST'])
 def save_ingredient_db():
     """儲存食材到資料庫"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         data = request.get_json()
         if not data:
@@ -320,6 +327,9 @@ def save_ingredient_db():
 @app.route('/api/ingredients_db/<name>', methods=['DELETE'])
 def delete_ingredient_db(name):
     """刪除食材資料庫中的食材"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         ingredient = IngredientDB.query.filter_by(name=name).first()
         if not ingredient:
@@ -336,6 +346,9 @@ def delete_ingredient_db(name):
 @app.route('/api/calculate_conversion', methods=['POST'])
 def calculate_conversion():
     """計算食材換算"""
+    if db_error:
+        return jsonify({'status': 'error', 'message': f'資料庫連接錯誤: {str(db_error)}'}), 500
+    
     try:
         data = request.get_json()
         if not data:
@@ -395,12 +408,15 @@ def calculate_conversion():
 @app.route('/health')
 def health_check():
     """健康檢查端點"""
-    try:
-        # 嘗試連接資料庫
-        db.session.execute('SELECT 1')
-        return jsonify({'status': 'healthy', 'database': 'connected'})
-    except Exception as e:
-        return jsonify({'status': 'unhealthy', 'database': 'disconnected', 'error': str(e)}), 500
+    if db_error:
+        return jsonify({'status': 'unhealthy', 'database': 'disconnected', 'error': str(db_error)}), 500
+    else:
+        try:
+            # 嘗試連接資料庫
+            db.session.execute('SELECT 1')
+            return jsonify({'status': 'healthy', 'database': 'connected'})
+        except Exception as e:
+            return jsonify({'status': 'unhealthy', 'database': 'disconnected', 'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('DEBUG', False), host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

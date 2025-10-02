@@ -5,17 +5,29 @@ from database import init_db
 import os
 from datetime import datetime
 import json
+import re
 
 app = Flask(__name__)
 CORS(app)
 
-# 資料庫配置
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
+# 資料庫配置 - 修復 PostgreSQL 連接字串
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
+
+# 如果使用 PostgreSQL，修復連接字串格式
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_recycle': 300,
+    'pool_pre_ping': True
+}
 
 # 初始化資料庫
 init_db(app)
 
+# 其餘程式碼保持不變...
 # 其餘程式碼保持不變...
 
 # 常量定義

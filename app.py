@@ -3,8 +3,9 @@ from flask_cors import CORS
 import os
 from datetime import datetime
 import json
+import ssl
 
-# 先設置環境變數，然後再導入其他模塊
+# 設置環境變數
 os.environ['PG8000_NATIVE'] = 'false'
 
 from models import db, Recipe, Ingredient, IngredientDB
@@ -13,24 +14,53 @@ from database import init_db
 app = Flask(__name__)
 CORS(app)
 
-# 資料庫配置 - 使用 pg8000 驅動
+# 資料庫配置 - 啟用 SSL
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///recipes.db')
 
-# 修復 PostgreSQL 連接字串格式
+# 修復 PostgreSQL 連接字串格式並啟用 SSL
 if database_url and database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql+pg8000://', 1)
+    # 添加 SSL 參數
+    if '?' in database_url:
+        database_url += '&sslmode=require'
+    else:
+        database_url += '?sslmode=require'
 elif database_url and database_url.startswith('postgresql://'):
     database_url = database_url.replace('postgresql://', 'postgresql+pg8000://', 1)
+    # 添加 SSL 參數
+    if '?' in database_url:
+        database_url += '&sslmode=require'
+    else:
+        database_url += '?sslmode=require'
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
-    'pool_pre_ping': True
+    'pool_pre_ping': True,
+    'connect_args': {
+        'ssl_context': ssl.create_default_context()
+    }
 }
 
 # 初始化資料庫
-init_db(app)
+try:
+    init_db(app)
+    print("資料庫初始化成功")
+except Exception as e:
+    print(f"資料庫初始化失敗: {e}")
+    # 如果資料庫初始化失敗，我們仍然啟動應用，但提供錯誤頁面
+    @app.route('/')
+    def index_error():
+        return """
+        <html>
+            <body>
+                <h1>資料庫連接錯誤</h1>
+                <p>無法連接到資料庫。請檢查資料庫配置。</p>
+                <p>錯誤信息: {}</p>
+            </body>
+        </html>
+        """.format(str(e)), 500
 
 # 常量定義
 PERCENTAGE_GROUPS = ["主麵團", "麵團餡料A", "麵團餡料B", "波蘭種", "液種", "中種", "魯班種"]
@@ -362,5 +392,15 @@ def calculate_conversion():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/health')
+def health_check():
+    """健康檢查端點"""
+    try:
+        # 嘗試連接資料庫
+        db.session.execute('SELECT 1')
+        return jsonify({'status': 'healthy', 'database': 'connected'})
+    except Exception as e:
+        return jsonify({'status': 'unhealthy', 'database': 'disconnected', 'error': str(e)}), 500
+
 if __name__ == '__main__':
-    app.run(debug=os.environ.get('DEBUG', False))
+    app.run(debug=os.environ.get('DEBUG', False), host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

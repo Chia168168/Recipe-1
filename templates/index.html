@@ -1,0 +1,51 @@
+// 替換所有的 google.script.run 為 fetch API
+
+// 例如，載入食譜的函數修改為：
+function loadRecipes() {
+    fetch('/api/recipes')
+        .then(response => response.json())
+        .then(recipes => {
+            allRecipes = recipes;
+            applySort();
+            updateStats();
+            updateRecipeFilter(allRecipes);
+        })
+        .catch(error => {
+            showNotification('載入食譜時發生錯誤: ' + error.message, 'error');
+        });
+}
+
+// 儲存食譜的函數修改為：
+function saveRecipe() {
+    // ... 表單驗證邏輯保持不變 ...
+    
+    const recipeData = {
+        title: title,
+        ingredients: ingredients,
+        steps: steps,
+        baking: bakingInfo
+    };
+    
+    const url = editingTitle ? `/api/recipes/${encodeURIComponent(editingTitle)}` : '/api/recipes';
+    const method = editingTitle ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(recipeData)
+    })
+    .then(response => response.json())
+    .then(res => {
+        hideSaveProgress();
+        showNotification(res.message, 'success');
+        resetForm();
+        loadRecipes();
+        switchTab("browse");
+    })
+    .catch(error => {
+        hideSaveProgress();
+        showNotification("操作失敗: " + error.message, 'error');
+    });
+}

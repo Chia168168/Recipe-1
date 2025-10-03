@@ -86,13 +86,13 @@
         <h2>新增 / 修改食譜</h2>
         <p>只有需要計算百分比的分組才必須包含麵粉食材。麵團餡料A和B不需要麵粉但仍會計算百分比。</p>
         <label>食譜名稱</label>
-        <input type="text" id="recipeTitle">
+        <input type="text" id="recipeTitle" oninput="updateConversionToolButton()">
         <input type="hidden" id="edit-mode" value="false">
         <input type="hidden" id="old-title" value="">
         <div id="ingredients-management">
             <h3>食材分組管理</h3>
             <button onclick="addIngredientRow()">新增食材</button>
-            <button id="conversion-tool-btn" onclick="openConversionModal()">智能換算工具</button>
+            <button id="conversion-tool-btn" onclick="openConversionModal()" disabled>智能換算工具</button>
             <div id="ingredients-container"></div>
             <span id="hydrationDisplay">含水率: 0%</span>
         </div>
@@ -166,15 +166,20 @@
         let currentGroups = {};
         const groupOptions = ['主麵團', '麵團餡料A', '麵團餡料B', '波蘭種', '液種', '中種', '魯班種', '內餡', '裝飾'];
         const flourCheckGroups = ['主麵團', '波蘭種', '液種', '中種', '魯班種'];
-        let ingredientOptions = [];
+        const baseIngredientOptions = ["高筋麵粉", "中筋麵粉", "低筋麵粉", "全麥麵粉", "裸麥粉", "麵粉", "水", "牛奶", "糖", "鹽", "蜂蜜", "酵母", "泡打粉", "奶油", "鮮奶油", "奶油乳酪", "奶粉", "煉乳", "雞蛋", "優格", "酒", "香草精"];
+        let ingredientOptions = [...baseIngredientOptions];
+        const hydrationMap = { "水": 1.0, "煉乳": 0.3, "鮮奶油": 0.5, "優格": 0.9, "奶油乳酪": 0.5, "牛奶": 0.9, "雞蛋": 0.75, "蜂蜜": 0.17 };
 
         // Load ingredients database
         async function loadIngredientsDBForDropdown() {
             try {
                 const response = await fetch('/api/ingredients_db');
                 ingredientsDB = await response.json();
-                ingredientOptions = ingredientsDB.map(i => i.name);
+                // Merge baseIngredientOptions with DB ingredients, remove duplicates
+                const dbIngredients = ingredientsDB.map(i => i.name);
+                ingredientOptions = [...new Set([...baseIngredientOptions, ...dbIngredients])];
                 console.log('Ingredients DB loaded:', ingredientsDB);
+                console.log('Merged ingredientOptions:', ingredientOptions);
             } catch (err) {
                 console.error('Failed to load ingredients DB:', err);
                 showNotification('無法載入食材資料庫', 'error');
@@ -337,8 +342,14 @@
                 const name = row.querySelector("select:nth-child(2)").value || row.querySelector(".ing-name-custom").value;
                 const weight = parseFloat(row.querySelector("input[type=number]").value) || 0;
                 const ing = ingredientsDB.find(i => i.name === name);
-                if (ing && weight > 0) {
-                    totalHydration += (ing.hydration / 100) * weight;
+                let hydration = 0;
+                if (ing) {
+                    hydration = ing.hydration / 100; // Use DB hydration
+                } else if (hydrationMap[name]) {
+                    hydration = hydrationMap[name]; // Fallback to hydrationMap
+                }
+                if (weight > 0) {
+                    totalHydration += hydration * weight;
                     totalWeight += weight;
                 }
             }
@@ -539,7 +550,6 @@
         function loadIngredientsDB() {
             fetch('/api/ingredients_db').then(res => res.json()).then(data => {
                 ingredientsDB = data;
-                ingredientOptions = data.map(i => i.name);
                 const list = document.getElementById('ingredientsDBList');
                 list.innerHTML = '';
                 data.forEach(i => {
@@ -548,6 +558,9 @@
                     item.innerHTML = `${i.name} - ${i.hydration}% <button onclick="deleteIngredientDB('${i.name}')">刪除</button>`;
                     list.appendChild(item);
                 });
+                // Update ingredientOptions after loading DB
+                const dbIngredients = data.map(i => i.name);
+                ingredientOptions = [...new Set([...baseIngredientOptions, ...dbIngredients])];
             });
         }
 

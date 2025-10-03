@@ -15,14 +15,17 @@
         .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; }
         .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
         .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
-        #ingredient-groups { margin-top: 10px; }
-        .group { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-        .ingredient { margin-bottom: 5px; }
-        #recipe-list { margin-top: 10px; }
+        #ingredients-container { margin-top: 10px; }
+        .ingredient-group-header { font-weight: bold; margin: 10px 0; }
+        .flour-warning { color: red; margin-left: 10px; display: none; }
+        .ingredient-grid { display: grid; grid-template-columns: 150px 200px 100px 100px 200px 50px; gap: 5px; margin-bottom: 5px; }
+        .ingredient-grid select, .ingredient-grid input { width: 100%; }
+        #recipeList { margin-top: 10px; }
         .recipe-card { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; }
         #loading { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.8); padding: 20px; border: 1px solid #ccc; }
-        #ingredients-db-list { margin-top: 10px; }
+        #ingredientsDBList { margin-top: 10px; }
         .ing-db-item { margin-bottom: 5px; }
+        .notification { position: fixed; top: 10px; right: 10px; padding: 10px; background: #333; color: white; border-radius: 5px; display: none; }
     </style>
 </head>
 <body>
@@ -88,10 +91,9 @@
         <input type="hidden" id="old-title" value="">
         <div id="ingredients-management">
             <h3>食材分組管理</h3>
-            <button onclick="addGroup()">新增分組</button>
-            <button onclick="openConversionModal()">智能換算工具</button>
-            <div id="ingredientGroups"></div>
-            <button onclick="addIngredient()">新增食材</button>
+            <button onclick="addIngredientRow()">新增食材</button>
+            <button id="conversion-tool-btn" onclick="openConversionModal()">智能換算工具</button>
+            <div id="ingredients-container"></div>
             <span id="hydrationDisplay">含水率: 0%</span>
         </div>
         <label>製作步驟</label>
@@ -117,7 +119,7 @@
         <a href="/api/export_excel" download><button>匯出 Excel</button></a>
         <label>食譜名稱:</label>
         <select id="recipeFilter">
-            <option>全部食譜</option>
+            <option value="all">全部食譜</option>
         </select>
         <select id="sortOrder">
             <option value="timestamp_desc">建立時間 新→舊</option>
@@ -152,12 +154,32 @@
     </footer>
 
     <div id="loading">儲存中，請稍候...</div>
+    <div id="notification" class="notification"></div>
 
     <script>
         let currentRecipeTitleForConversion = '';
         let originalTotalFlour = 0;
         let recipes = [];
         let convertedIngredients = [];
+        let ingredientsDB = [];
+        let lastUsedGroup = '主麵團';
+        let currentGroups = {};
+        const groupOptions = ['主麵團', '麵團餡料A', '麵團餡料B', '波蘭種', '液種', '中種', '魯班種', '內餡', '裝飾'];
+        const flourCheckGroups = ['主麵團', '波蘭種', '液種', '中種', '魯班種'];
+        let ingredientOptions = [];
+
+        // Load ingredients database
+        async function loadIngredientsDBForDropdown() {
+            try {
+                const response = await fetch('/api/ingredients_db');
+                ingredientsDB = await response.json();
+                ingredientOptions = ingredientsDB.map(i => i.name);
+                console.log('Ingredients DB loaded:', ingredientsDB);
+            } catch (err) {
+                console.error('Failed to load ingredients DB:', err);
+                showNotification('無法載入食材資料庫', 'error');
+            }
+        }
 
         function showTab(tab) {
             document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
@@ -167,57 +189,190 @@
             if (tab === 'settings') loadIngredientsDB();
         }
 
-        function addGroup() {
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'group';
-            groupDiv.innerHTML = `
-                <input type="text" class="group-name" placeholder="分組名稱">
-                <div class="ingredients"></div>
-                <button onclick="addIngredientToGroup(this.parentElement)">新增食材到此分組</button>
-            `;
-            document.getElementById('ingredientGroups').appendChild(groupDiv);
-        }
-
-        function addIngredient() {
-            addIngredientToGroup(document.getElementById('ingredientGroups').lastChild || addGroup());
-        }
-
-        function addIngredientToGroup(group) {
-            const ingDiv = document.createElement('div');
-            ingDiv.className = 'ingredient';
-            ingDiv.innerHTML = `
-                <input type="text" class="ing-name" placeholder="食材" oninput="updateHydration(this)">
-                <input type="number" class="ing-weight" placeholder="重量 (g)">
-                <input type="text" class="ing-percent" placeholder="百分比">
-                <input type="text" class="ing-desc" placeholder="說明">
-                <button onclick="this.parentElement.remove()">刪除</button>
-            `;
-            group.querySelector('.ingredients').appendChild(ingDiv);
-        }
-
-        async function updateHydration(input) {
-            const name = input.value.trim();
-            if (name) {
-                const db = await fetch('/api/ingredients_db').then(res => res.json());
-                const ing = db.find(i => i.name === name);
-                const hydration = ing ? ing.hydration : 0;
-                document.getElementById('hydrationDisplay').textContent = `含水率: ${hydration}%`;
+        function addIngredientRow(nameVal = "", weightVal = "", percentVal = "", descVal = "", groupVal = lastUsedGroup) {
+            const container = document.getElementById("ingredients-container");
+            if (!currentGroups[groupVal]) {
+                currentGroups[groupVal] = true;
+                const groupHeader = document.createElement("div");
+                groupHeader.className = "ingredient-group-header";
+                groupHeader.innerHTML = `<span>${groupVal} 分組</span><span class="flour-warning" id="warning-${groupVal.replace(/\s+/g, '-')}"><i class="fas fa-exclamation-circle"></i> 此分組需要至少一種麵粉食材</span>`;
+                container.appendChild(groupHeader);
+                document.getElementById(`warning-${groupVal.replace(/\s+/g, "-")}`).style.display = flourCheckGroups.includes(groupVal) ? "block" : "none";
             }
+            const row = document.createElement("div");
+            row.className = "ingredient-grid";
+
+            // 分組下拉選單
+            const groupSelect = document.createElement("select");
+            groupSelect.innerHTML = groupOptions.map(g => `<option value="${g}" ${g === groupVal ? "selected" : ""}>${g}</option>`).join("");
+            groupSelect.addEventListener("change", function() { 
+                lastUsedGroup = this.value; 
+                updateGroupHeaders(); 
+                calcPercentages(); 
+                calcHydration(); 
+            });
+
+            // 食材名稱下拉選單
+            const nameSelect = document.createElement("select");
+            nameSelect.innerHTML = "<option value=''>選擇食材或輸入新名稱</option>" + ingredientOptions.map(o => `<option value="${o}">${o}</option>`).join("");
+            nameSelect.value = nameVal;
+            nameSelect.addEventListener("change", function() { 
+                const customInput = this.parentElement.querySelector('.ing-name-custom');
+                customInput.style.display = this.value === '' ? 'inline-block' : 'none';
+                calcPercentages(); 
+                calcHydration(); 
+            });
+
+            // 自訂食材名稱輸入框
+            const nameCustomInput = document.createElement("input");
+            nameCustomInput.type = "text";
+            nameCustomInput.className = "ing-name-custom";
+            nameCustomInput.placeholder = "新食材名稱";
+            nameCustomInput.style.display = nameVal && !ingredientOptions.includes(nameVal) ? "inline-block" : "none";
+            if (nameVal && !ingredientOptions.includes(nameVal)) nameCustomInput.value = nameVal;
+
+            // 重量輸入
+            const weightInput = document.createElement("input");
+            weightInput.type = "number"; 
+            weightInput.placeholder = "重量 (g)"; 
+            weightInput.min = "0"; 
+            weightInput.step = "1";
+            if (weightVal !== "" && weightVal !== undefined) weightInput.value = weightVal;
+            weightInput.addEventListener("input", () => { 
+                calcPercentages(); 
+                calcHydration(); 
+            });
+
+            // 百分比輸入（唯讀）
+            const percentInput = document.createElement("input");
+            percentInput.placeholder = "百分比"; 
+            percentInput.readOnly = true;
+            if (percentVal) percentInput.value = formatPercentFrontend(percentVal);
+
+            // 說明輸入
+            const descInput = document.createElement("input");
+            descInput.placeholder = "說明 (可選)";
+            if (descVal) descInput.value = descVal;
+
+            // 刪除按鈕
+            const deleteBtn = document.createElement("button");
+            deleteBtn.innerHTML = '刪除';
+            deleteBtn.onclick = function() { 
+                row.remove(); 
+                updateGroupHeaders(); 
+                calcPercentages(); 
+                calcHydration(); 
+                showNotification('已移除食材', 'info');
+                updateConversionToolButton();
+            };
+
+            row.appendChild(groupSelect);
+            row.appendChild(nameSelect);
+            row.appendChild(nameCustomInput);
+            row.appendChild(weightInput);
+            row.appendChild(percentInput);
+            row.appendChild(descInput);
+            row.appendChild(deleteBtn);
+            container.appendChild(row);
+            calcPercentages();
+            calcHydration();
+            updateConversionToolButton();
+        }
+
+        function updateGroupHeaders() {
+            const container = document.getElementById("ingredients-container");
+            const existingGroups = {};
+            document.querySelectorAll(".ingredient-grid").forEach(row => {
+                const group = row.querySelector("select").value;
+                existingGroups[group] = true;
+            });
+            Object.keys(currentGroups).forEach(group => {
+                if (!existingGroups[group]) {
+                    const header = document.getElementById(`warning-${group.replace(/\s+/g, '-')}`)?.parentElement;
+                    if (header) header.remove();
+                    delete currentGroups[group];
+                }
+            });
+            document.querySelectorAll(".ingredient-grid").forEach(row => {
+                const group = row.querySelector("select").value;
+                const hasFlour = Array.from(document.querySelectorAll(".ingredient-grid")).some(r => {
+                    const g = r.querySelector("select").value;
+                    const name = r.querySelector("select:nth-child(2)").value || r.querySelector(".ing-name-custom").value;
+                    return g === group && isFlourIngredient(name);
+                });
+                const warning = document.getElementById(`warning-${group.replace(/\s+/g, '-')}`);
+                if (warning) warning.style.display = flourCheckGroups.includes(group) && !hasFlour ? "inline" : "none";
+            });
+        }
+
+        function calcPercentages() {
+            const rows = document.querySelectorAll(".ingredient-grid");
+            const groupTotals = {};
+            rows.forEach(row => {
+                const group = row.querySelector("select").value;
+                const name = row.querySelector("select:nth-child(2)").value || row.querySelector(".ing-name-custom").value;
+                const weight = parseFloat(row.querySelector("input[type=number]").value) || 0;
+                if (isFlourIngredient(name) && flourCheckGroups.includes(group)) {
+                    groupTotals[group] = (groupTotals[group] || 0) + weight;
+                }
+            });
+            rows.forEach(row => {
+                const group = row.querySelector("select").value;
+                const weight = parseFloat(row.querySelector("input[type=number]").value) || 0;
+                const percentInput = row.querySelector("input[placeholder='百分比']");
+                if (flourCheckGroups.includes(group) && groupTotals[group] > 0) {
+                    const percent = (weight / groupTotals[group]) * 100;
+                    percentInput.value = formatPercentFrontend(percent / 100);
+                } else {
+                    percentInput.value = "";
+                }
+            });
+        }
+
+        async function calcHydration() {
+            const rows = document.querySelectorAll(".ingredient-grid");
+            let totalHydration = 0;
+            let totalWeight = 0;
+            for (const row of rows) {
+                const name = row.querySelector("select:nth-child(2)").value || row.querySelector(".ing-name-custom").value;
+                const weight = parseFloat(row.querySelector("input[type=number]").value) || 0;
+                const ing = ingredientsDB.find(i => i.name === name);
+                if (ing && weight > 0) {
+                    totalHydration += (ing.hydration / 100) * weight;
+                    totalWeight += weight;
+                }
+            }
+            const hydrationPercent = totalWeight > 0 ? (totalHydration / totalWeight) * 100 : 0;
+            document.getElementById('hydrationDisplay').textContent = `含水率: ${hydrationPercent.toFixed(2)}%`;
+        }
+
+        function formatPercentFrontend(percent) {
+            if (percent === "" || percent === undefined || percent === null) return "";
+            return `${(parseFloat(percent) * 100).toFixed(2)}%`;
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.background = type === 'error' ? '#dc3545' : '#17a2b8';
+            notification.style.display = 'block';
+            setTimeout(() => notification.style.display = 'none', 3000);
+        }
+
+        function updateConversionToolButton() {
+            const title = document.getElementById('recipeTitle').value;
+            document.getElementById('conversion-tool-btn').disabled = !title;
         }
 
         function collectIngredients() {
             const ingredients = [];
-            document.querySelectorAll('.group').forEach(group => {
-                const groupName = group.querySelector('.group-name').value;
-                group.querySelectorAll('.ingredient').forEach(ing => {
-                    ingredients.push({
-                        group: groupName,
-                        name: ing.querySelector('.ing-name').value,
-                        weight: parseFloat(ing.querySelector('.ing-weight').value) || 0,
-                        percent: ing.querySelector('.ing-percent').value,
-                        desc: ing.querySelector('.ing-desc').value
-                    });
-                });
+            document.querySelectorAll('.ingredient-grid').forEach(row => {
+                const group = row.querySelector('select').value;
+                const name = row.querySelector('select:nth-child(2)').value || row.querySelector('.ing-name-custom').value;
+                const weight = parseFloat(row.querySelector('input[type=number]').value) || 0;
+                const percent = row.querySelector("input[placeholder='百分比']").value;
+                const desc = row.querySelector("input[placeholder='說明 (可選)']").value;
+                ingredients.push({ group, name, weight, percent, desc });
             });
             return ingredients;
         }
@@ -246,12 +401,12 @@
                 body: JSON.stringify(body)
             }).then(res => res.json()).then(data => {
                 showLoading(false);
-                alert(data.message || '儲存成功');
+                showNotification(data.message || '儲存成功', 'info');
                 clearForm();
                 loadRecipes();
             }).catch(err => {
                 showLoading(false);
-                alert('錯誤: ' + err);
+                showNotification('錯誤: ' + err, 'error');
             });
         }
 
@@ -263,9 +418,13 @@
             document.getElementById('bakeTime').value = 30;
             document.getElementById('convection').checked = false;
             document.getElementById('steam').checked = false;
-            document.getElementById('ingredientGroups').innerHTML = '';
+            document.getElementById('ingredients-container').innerHTML = '';
+            currentGroups = {};
+            lastUsedGroup = '主麵團';
             document.getElementById('edit-mode').value = 'false';
             document.getElementById('old-title').value = '';
+            updateConversionToolButton();
+            document.getElementById('hydrationDisplay').textContent = '含水率: 0%';
         }
 
         function loadRecipes() {
@@ -273,12 +432,15 @@
                 recipes = data;
                 populateFilter();
                 displayRecipes();
+            }).catch(err => {
+                console.error('Failed to load recipes:', err);
+                showNotification('無法載入食譜，請檢查網路連線', 'error');
             });
         }
 
         function populateFilter() {
             const filter = document.getElementById('recipeFilter');
-            filter.innerHTML = '<option>全部食譜</option>';
+            filter.innerHTML = '<option value="all">全部食譜</option>';
             recipes.forEach(r => {
                 const option = document.createElement('option');
                 option.value = r.title;
@@ -290,7 +452,7 @@
         function displayRecipes() {
             const filter = document.getElementById('recipeFilter').value;
             const sort = document.getElementById('sortOrder').value;
-            let filtered = filter === '全部食譜' ? recipes : recipes.filter(r => r.title === filter);
+            let filtered = filter === 'all' ? recipes : recipes.filter(r => r.title === filter);
 
             if (sort === 'timestamp_desc') filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
             if (sort === 'timestamp_asc') filtered.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -332,37 +494,23 @@
             document.getElementById('convection').checked = recipe.baking.convection;
             document.getElementById('steam').checked = recipe.baking.steam;
 
-            const groups = {};
+            const container = document.getElementById('ingredients-container');
+            container.innerHTML = '';
+            currentGroups = {};
             recipe.ingredients.forEach(i => {
-                if (!groups[i.group]) groups[i.group] = [];
-                groups[i.group].push(i);
-            });
-
-            const groupContainer = document.getElementById('ingredientGroups');
-            groupContainer.innerHTML = '';
-            Object.keys(groups).forEach(g => {
-                addGroup();
-                const groupDiv = groupContainer.lastChild;
-                groupDiv.querySelector('.group-name').value = g;
-                groups[g].forEach(ing => {
-                    addIngredientToGroup(groupDiv);
-                    const ingDiv = groupDiv.querySelector('.ingredients').lastChild;
-                    ingDiv.querySelector('.ing-name').value = ing.name;
-                    ingDiv.querySelector('.ing-weight').value = ing.weight;
-                    ingDiv.querySelector('.ing-percent').value = ing.percent;
-                    ingDiv.querySelector('.ing-desc').value = ing.desc;
-                });
+                addIngredientRow(i.name, i.weight, i.percent, i.desc, i.group);
             });
 
             document.getElementById('edit-mode').value = 'true';
             document.getElementById('old-title').value = title;
             showTab('recipeManage');
+            updateConversionToolButton();
         }
 
         function deleteRecipe(title) {
             if (confirm(`確認刪除 ${title}?`)) {
                 fetch(`/api/delete_recipe?title=${title}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-                    alert(data.message);
+                    showNotification(data.message, 'info');
                     loadRecipes();
                 });
             }
@@ -390,6 +538,8 @@
 
         function loadIngredientsDB() {
             fetch('/api/ingredients_db').then(res => res.json()).then(data => {
+                ingredientsDB = data;
+                ingredientOptions = data.map(i => i.name);
                 const list = document.getElementById('ingredientsDBList');
                 list.innerHTML = '';
                 data.forEach(i => {
@@ -404,14 +554,14 @@
         function saveIngredientDB() {
             const name = document.getElementById('ingName').value;
             const hydration = parseFloat(document.getElementById('ingHydration').value);
-            if (!name) return alert('請輸入食材名稱');
+            if (!name) return showNotification('請輸入食材名稱', 'error');
 
             fetch('/api/save_ingredient_db', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, hydration })
             }).then(res => res.json()).then(data => {
-                alert(data.message);
+                showNotification(data.message, 'info');
                 loadIngredientsDB();
             });
         }
@@ -419,7 +569,7 @@
         function deleteIngredientDB(name) {
             if (confirm(`確認刪除 ${name}?`)) {
                 fetch(`/api/delete_ingredient_db?name=${name}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
-                    alert(data.message);
+                    showNotification(data.message, 'info');
                     loadIngredientsDB();
                 });
             }
@@ -427,7 +577,7 @@
 
         function openConversionModal() {
             const title = document.getElementById('recipeTitle').value;
-            if (!title) return alert('請先輸入食譜名稱或選擇食譜');
+            if (!title) return showNotification('請先輸入食譜名稱或選擇食譜', 'error');
 
             currentRecipeTitleForConversion = title;
             calculateOriginalFlour();
@@ -441,7 +591,7 @@
         function calculateOriginalFlour() {
             fetch('/api/recipes').then(res => res.json()).then(data => {
                 const recipe = data.find(r => r.title === currentRecipeTitleForConversion);
-                if (!recipe) return alert('找不到食譜');
+                if (!recipe) return showNotification('找不到食譜', 'error');
 
                 let totalFlour = 0;
                 recipe.ingredients.forEach(ing => {
@@ -474,7 +624,7 @@
                     includeNonPercentageGroups: includeNonPercentage
                 })
             }).then(res => res.json()).then(data => {
-                if (data.status === 'error') return alert(data.message);
+                if (data.status === 'error') return showNotification(data.message, 'error');
 
                 convertedIngredients = data.ingredients;
                 const resultDiv = document.getElementById('converted-ingredients');
@@ -484,32 +634,17 @@
 
         function copyConversionResult() {
             const result = document.getElementById('converted-ingredients').innerText;
-            navigator.clipboard.writeText(result).then(() => alert('已複製'));
+            navigator.clipboard.writeText(result).then(() => showNotification('已複製', 'info'));
         }
 
         function applyToEditForm() {
-            if (convertedIngredients.length === 0) return alert('請先計算換算結果');
+            if (convertedIngredients.length === 0) return showNotification('請先計算換算結果', 'error');
 
-            const groups = {};
+            const container = document.getElementById('ingredients-container');
+            container.innerHTML = '';
+            currentGroups = {};
             convertedIngredients.forEach(i => {
-                if (!groups[i.group]) groups[i.group] = [];
-                groups[i.group].push(i);
-            });
-
-            const groupContainer = document.getElementById('ingredientGroups');
-            groupContainer.innerHTML = '';
-            Object.keys(groups).forEach(g => {
-                addGroup();
-                const groupDiv = groupContainer.lastChild;
-                groupDiv.querySelector('.group-name').value = g;
-                groups[g].forEach(ing => {
-                    addIngredientToGroup(groupDiv);
-                    const ingDiv = groupDiv.querySelector('.ingredients').lastChild;
-                    ingDiv.querySelector('.ing-name').value = ing.name;
-                    ingDiv.querySelector('.ing-weight').value = ing.weight;
-                    ingDiv.querySelector('.ing-percent').value = ing.percent;
-                    ingDiv.querySelector('.ing-desc').value = ing.desc;
-                });
+                addIngredientRow(i.name, i.weight, i.percent, i.desc, i.group);
             });
 
             closeConversionModal();
@@ -522,8 +657,7 @@
         }
 
         function isPercentageGroup(group) {
-            const groups = ["主麵團", "麵團餡料A", "麵團餡料B", "波蘭種", "液種", "中種", "魯班種"];
-            return groups.includes(group);
+            return flourCheckGroups.includes(group) || ['麵團餡料A', '麵團餡料B'].includes(group);
         }
 
         function showLoading(show) {
@@ -531,6 +665,7 @@
         }
 
         // Initial load
+        loadIngredientsDBForDropdown();
         loadRecipes();
         showTab('recipeManage');
     </script>
